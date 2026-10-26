@@ -1,142 +1,85 @@
 "use strict";
 
 /**
- * Minimal WhatsApp Cloud API client — send-side only.
- * Uses Node 18+ native fetch; no extra dependencies.
+ * Channel dispatcher. Every handler already calls
+ * `sendText(to, body, sendOpts)` where `to` is the person's phone number (the
+ * identity everywhere in this codebase). This module decides whether that lands
+ * on Telegram or WhatsApp, so no handler needed to change.
  *
- * Docs: https://developers.facebook.com/docs/whatsapp/cloud-api/reference/messages
+ * Order of decision for each send:
+ *   1. sendOpts.channel === "telegram" (set by the Telegram webhook for replies)
+ *      -> Telegram, to sendOpts.chatId.
+ *   2. A channel resolver is registered (server.js does this) and the recipient
+ *      has a linked Telegram chat -> Telegram. This is what makes proactive
+ *      messages (shift offers, reminders, nudges) go to Telegram.
+ *   3. WhatsApp credentials are configured -> WhatsApp (legacy / fallback).
+ *   4. Otherwise the message can't be delivered: logged and dropped. Typically
+ *      the person hasn't messaged the bot yet — Telegram bots can't initiate.
+ *
+ * Without a resolver and without sendOpts.channel (e.g. the existing unit
+ * tests) behaviour is exactly the original WhatsApp behaviour.
  */
 
-const GRAPH_VERSION = "v21.0";
+const wa = require("./whatsappCloudApi");
+const tg = require("./telegramClient");
 
-/**
- * Send a plain text message to a WhatsApp user.
- * Free within the 24h customer-service window opened by the user's message.
- *
- * @param {string} to    Recipient phone number in international format, no "+" (e.g. "61412345678")
- * @param {string} body  Message text
- * @param {{phoneNumberId?: string, token?: string}} [options]  Per-tenant overrides —
- *   used for multi-venue setups where each tenant has their own WhatsApp
- *   number/token. Falls back to the single-venue env vars if omitted, so
- *   existing single-tenant deployments keep working unchanged.
- * @returns {Promise<object>} WhatsApp API response JSON
- */
+/** @type {((phone: string) => Promise<string|null>)|null} */
+let channelResolver = null;
+
+/** server.js registers: phone -> linked Telegram chat ID (or null). */
+function setChannelResolver(fn) {
+  channelResolver = fn;
+}
+
+function whatsappConfigured(options = {}) {
+  return Boolean(
+    (options.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID) &&
+      (options.token || process.env.WHATSAPP_TOKEN)
+  );
+}
+
+/** @returns {Promise<{channel: "telegram", chatId: string}|{channel: "whatsapp"}|null>} */
+async function pickChannel(to, options = {}) {
+  if (options.channel === "telegram" && options.chatId) {
+    return { channel: "telegram", chatId: String(options.chatId) };
+  }
+  if (channelResolver) {
+    try {
+      const chatId = await channelResolver(to);
+      if (chatId) return { channel: "telegram", chatId: String(chatId) };
+    } catch (err) {
+      console.error("[channel] resolver failed:", err.message);
+    }
+  }
+  if (options.channel === "whatsapp" || whatsappConfigured(options)) return { channel: "whatsapp" };
+  return null;
+}
+
+function undeliverable(to) {
+  console.warn(
+    `[channel] no way to reach ${to} — not linked to Telegram and WhatsApp isn't configured. ` +
+      "They need to message the bot once and share their phone number."
+  );
+  return { ok: false, reason: "no_channel" };
+}
+
 async function sendText(to, body, options = {}) {
-  const phoneNumberId = options.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = options.token || process.env.WHATSAPP_TOKEN;
-
-  if (!phoneNumberId || !token) {
-    throw new Error(
-      "Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_TOKEN environment variable."
-    );
-  }
-
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "text",
-      text: { preview_url: false, body },
-    }),
-  });
-
-  const json = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    // Log the full error but don't crash the webhook — Meta retries on 5xx,
-    // and a failed reply shouldn't take the whole pipe down.
-    console.error("WhatsApp send failed:", res.status, JSON.stringify(json));
-  }
-
-  return json;
+  const pick = await pickChannel(to, options);
+  if (!pick) return undeliverable(to);
+  return pick.channel === "telegram" ? tg.sendText(pick.chatId, body) : wa.sendText(to, body, options);
 }
 
-/**
- * Send an interactive "share your location" prompt — renders as a one-tap
- * button in WhatsApp that opens the native location picker. Nicer than
- * asking the user to find WhatsApp's location-share feature themselves.
- *
- * @param {string} to    Recipient phone number, international format, no "+"
- * @param {string} body  The message shown above the button
- * @param {{phoneNumberId?: string, token?: string}} [options]  Per-tenant overrides, see sendText.
- */
 async function sendLocationRequest(to, body, options = {}) {
-  const phoneNumberId = options.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const token = options.token || process.env.WHATSAPP_TOKEN;
-
-  if (!phoneNumberId || !token) {
-    throw new Error(
-      "Missing WHATSAPP_PHONE_NUMBER_ID or WHATSAPP_TOKEN environment variable."
-    );
-  }
-
-  const url = `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "interactive",
-      interactive: {
-        type: "location_request_message",
-        body: { text: body },
-        action: { name: "send_location" },
-      },
-    }),
-  });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    console.error("WhatsApp location request failed:", res.status, JSON.stringify(json));
-  }
-  return json;
+  const pick = await pickChannel(to, options);
+  if (!pick) return undeliverable(to);
+  return pick.channel === "telegram"
+    ? tg.sendLocationRequest(pick.chatId, body)
+    : wa.sendLocationRequest(to, body, options);
 }
 
-/**
- * Download a media attachment (photo) a user sent us, by its media ID.
- * Two-step per Meta's docs: resolve the media ID to a short-lived CDN URL,
- * then fetch the binary with the same bearer token.
- *
- * @param {string} mediaId  message.image.id from the webhook payload
- * @param {{token?: string}} [options]  Per-tenant token override
- * @returns {Promise<{buffer: Buffer, mimeType: string}|null>} null on any failure
- */
+/** Photo download. `options.channel` says whose file ID this is. */
 async function fetchMediaBinary(mediaId, options = {}) {
-  const token = options.token || process.env.WHATSAPP_TOKEN;
-  if (!token) return null;
-  try {
-    const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const meta = await metaRes.json();
-    if (!metaRes.ok || !meta.url) {
-      console.error("[media] resolve failed:", metaRes.status, JSON.stringify(meta));
-      return null;
-    }
-    const binRes = await fetch(meta.url, { headers: { Authorization: `Bearer ${token}` } });
-    if (!binRes.ok) {
-      console.error("[media] download failed:", binRes.status);
-      return null;
-    }
-    return { buffer: Buffer.from(await binRes.arrayBuffer()), mimeType: meta.mime_type || "image/jpeg" };
-  } catch (err) {
-    console.error("[media] error:", err.message);
-    return null;
-  }
+  return options.channel === "telegram" ? tg.fetchMediaBinary(mediaId) : wa.fetchMediaBinary(mediaId, options);
 }
 
-module.exports = { sendText, sendLocationRequest, fetchMediaBinary };
+module.exports = { sendText, sendLocationRequest, fetchMediaBinary, setChannelResolver, pickChannel };

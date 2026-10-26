@@ -1,6 +1,12 @@
-# HospitalityOS — Webhook Skeleton (Build Step 1)
+# Crewline — Webhook Skeleton (Build Step 1)
 
-WhatsApp-first operations platform for F&B. This is **step 1 of the build order**
+Telegram-first workforce platform for deskless teams (hospitality, cleaning, security).
+Staff clock in, set availability, answer shift offers and file credentials by messaging a
+Telegram bot — no Meta business verification needed. WhatsApp remains as an optional
+fallback. Setup: `docs/telegram-channel.md`.
+
+> The sections below are the original step-1 build notes, written when WhatsApp was the
+> only channel. **This is step 1 of the build order**
 in `docs/backend-build-scope.md`: prove the pipe —
 WhatsApp message → Meta Cloud API → this webhook → sender lookup → reply.
 
@@ -22,7 +28,7 @@ computer only needs a web browser.
 
 ## Step 1 — Put the code on GitHub (browser upload)
 
-1. github.com → **New repository** → name it `hospitality-os` → Create
+1. github.com → **New repository** → name it `crewline` → Create
 2. On the empty repo page, click **"uploading an existing file"**
 3. Unzip the project on your PC (right-click → Extract; built into
    Windows/Mac, nothing to install) and drag **all files and folders** into
@@ -32,11 +38,11 @@ computer only needs a web browser.
 ## Step 2 — Deploy on Railway
 
 1. railway.app → **New Project** → **Deploy from GitHub repo** →
-   select `hospitality-os`
+   select `crewline`
 2. Railway auto-detects Node, installs dependencies, and starts the server —
    on Railway's machines, not yours
 3. Go to **Settings → Networking → Generate Domain** — you get a permanent
-   public URL like `https://hospitality-os-production.up.railway.app`
+   public URL like `https://crewline-production.up.railway.app`
 
 ## Step 3 — Set the secrets (Railway → Variables tab)
 
@@ -54,7 +60,7 @@ Railway redeploys automatically after you save variables.
 
 ## Set up Firebase (browser-only, needed from build step 2 onward)
 
-1. console.firebase.google.com → **Add project** → name it (e.g. `hospitality-os`)
+1. console.firebase.google.com → **Add project** → name it (e.g. `crewline`)
 2. Left sidebar → **Build → Firestore Database** → Create database → start in
    **production mode** (we control access with security rules, not test mode)
 3. Gear icon (top left) → **Project settings → Service accounts** →

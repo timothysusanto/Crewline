@@ -23,7 +23,7 @@ const { normalizeReliability, withOfferSent, withOfferAnswered, withShiftResult 
  * defines. See that module for why the response median is a rolling window.
  */
 
-/** @typedef {{ phone: string, tenantId: string, name: string, role: "owner"|"manager"|"staff", department?: string, roles?: string[], reliability?: object }} StaffRecord */
+/** @typedef {{ phone: string, telegramChatId?: string, tenantId: string, name: string, role: "owner"|"manager"|"staff", department?: string, roles?: string[], reliability?: object }} StaffRecord */
 
 /**
  * The jobs a person can be sent to do. Falls back to their section when no
@@ -72,6 +72,21 @@ class InMemoryStaffStore {
   /** @param {string} phone @returns {Promise<StaffRecord|null>} */
   async findByPhone(phone) {
     return this._staff.get(phone) || null;
+  }
+
+  /** @param {string} chatId @returns {Promise<StaffRecord|null>} */
+  async findByTelegramChatId(chatId) {
+    const id = String(chatId);
+    for (const s of this._staff.values()) if (s.telegramChatId === id) return s;
+    return null;
+  }
+
+  /** Links a Telegram chat to an existing (phone-keyed) staff record. */
+  async linkTelegramChatId(phone, chatId) {
+    const staff = this._staff.get(phone);
+    if (!staff) throw new Error("STAFF_NOT_FOUND");
+    staff.telegramChatId = String(chatId);
+    return staff;
   }
 
   /** @param {string} tenantId @returns {Promise<StaffRecord[]>} */
@@ -160,6 +175,23 @@ class FirestoreStaffStore {
   async findByPhone(phone) {
     const doc = await this.collection.doc(phone).get();
     return doc.exists ? { phone, ...doc.data() } : null;
+  }
+
+  /** Single-field equality — no composite index needed. */
+  async findByTelegramChatId(chatId) {
+    const snap = await this.collection.where("telegramChatId", "==", String(chatId)).limit(1).get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    return { phone: doc.id, ...doc.data() };
+  }
+
+  /** Links a Telegram chat to an existing (phone-keyed) staff record. */
+  async linkTelegramChatId(phone, chatId) {
+    const ref = this.collection.doc(phone);
+    const doc = await ref.get();
+    if (!doc.exists) throw new Error("STAFF_NOT_FOUND");
+    await ref.update({ telegramChatId: String(chatId) });
+    return { phone, ...doc.data(), telegramChatId: String(chatId) };
   }
 
   /**

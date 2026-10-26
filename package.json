@@ -1,7 +1,7 @@
 {
-  "name": "hospitality-os",
+  "name": "crewline",
   "version": "0.1.0",
-  "description": "Shiftfolk — WhatsApp-first workforce OS for deskless teams (cleaning, security, aged care, hospitality).",
+  "description": "Crewline — Telegram-first workforce OS for deskless teams (cleaning, security, aged care, hospitality).",
   "main": "server.js",
   "type": "commonjs",
   "engines": {

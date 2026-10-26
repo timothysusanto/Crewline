@@ -1,7 +1,7 @@
 "use strict";
 
 /**
- * HospitalityOS — webhook skeleton (build step 1 of backend-build-scope.md).
+ * Crewline — webhook skeleton (build step 1 of backend-build-scope.md).
  *
  * Proves the pipe: WhatsApp message -> Meta Cloud API -> this webhook ->
  * sender lookup -> reply through the Send API. Nothing else.
@@ -10,7 +10,9 @@
 const express = require("express");
 const path = require("path");
 const { verifyMetaSignature } = require("./verifySignature");
-const { sendText } = require("./whatsapp");
+const { sendText, setChannelResolver } = require("./whatsapp");
+const { handleTelegramUpdate, verifyTelegramSecret } = require("./telegramWebhook");
+const telegramClient = require("./telegramClient");
 const { SLOT_LABELS } = require("./availabilityHandler");
 const { handleIncoming } = require("./router");
 const { buildStores } = require("./stores");
@@ -47,6 +49,12 @@ const deps = {
 };
 
 console.log(`[startup] data backend: ${backend}`);
+
+// Telegram is the primary channel: any message addressed to a phone number goes
+// to that person's linked Telegram chat; WhatsApp is only the fallback (see
+// whatsapp.js). Bots can't initiate, so someone who hasn't linked yet is
+// unreachable until they message the bot once.
+setChannelResolver(async (phone) => (await staffStore.findByPhone(phone))?.telegramChatId || null);
 
 /**
  * The blast engine's tick loop (docs/agencymodelshape.md step 2). All dispatch
@@ -134,6 +142,22 @@ app.post("/webhook/whatsapp", (req, res) => {
       }
     }
   }
+});
+
+/**
+ * POST /webhook/telegram — Telegram bot updates.
+ * Authenticated by the secret token registered with setWebhook, echoed back in
+ * X-Telegram-Bot-Api-Secret-Token. Always 200 fast, then process.
+ */
+app.post("/webhook/telegram", (req, res) => {
+  if (!verifyTelegramSecret(req.get("X-Telegram-Bot-Api-Secret-Token"))) {
+    console.warn("[telegram] BAD SECRET — rejecting");
+    return res.sendStatus(403);
+  }
+  res.sendStatus(200);
+  handleTelegramUpdate(req.body, deps)
+    .then((outcome) => console.log(`[telegram] update handled: ${outcome}`))
+    .catch((err) => console.error("[telegram] handler error:", err));
 });
 
 /**
@@ -1489,7 +1513,7 @@ app.get("/api/reports/pnl", requireDashboardKey, async (req, res) => {
 });
 
 // Simple liveness probe for the host / uptime checks.
-app.get("/health", (_req, res) => res.json({ ok: true, service: "hospitality-os", step: 2, backend }));
+app.get("/health", (_req, res) => res.json({ ok: true, service: "crewline", step: 2, backend }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -1540,17 +1564,38 @@ startFoodSafetyPrompts({
 });
 
 // Fail fast on missing configuration rather than failing weirdly later.
-const required = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN", "META_APP_SECRET"];
-const missing = required.filter((k) => !process.env[k]);
-if (missing.length) {
-  console.warn(`[startup] WARNING — missing env vars: ${missing.join(", ")}`);
-  console.warn("[startup] The server will start, but webhook verification and replies will fail until these are set.");
+// Telegram is the primary channel; the WhatsApp variables are only needed if
+// you also want the WhatsApp fallback.
+const telegramRequired = ["TELEGRAM_BOT_TOKEN", "TELEGRAM_WEBHOOK_SECRET"];
+const telegramMissing = telegramRequired.filter((k) => !process.env[k]);
+if (telegramMissing.length) {
+  console.warn(`[startup] WARNING — missing env vars: ${telegramMissing.join(", ")}`);
+  console.warn("[startup] The Telegram channel will not work until these are set.");
+}
+const whatsappVars = ["WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "WHATSAPP_VERIFY_TOKEN", "META_APP_SECRET"];
+if (whatsappVars.every((k) => !process.env[k])) {
+  console.log("[startup] WhatsApp not configured — running Telegram-only (this is fine).");
 }
 if (!process.env.MANAGER_DASHBOARD_PASSWORD) {
   console.warn("[startup] MANAGER_DASHBOARD_PASSWORD is not set — /dashboard will load but its data API will reject all requests until it's set.");
 }
 
 app.listen(PORT, () => {
-  console.log(`Shiftfolk listening on :${PORT}`);
-  console.log(`Webhook URL path: /webhook/whatsapp`);
+  console.log(`Crewline listening on :${PORT}`);
+  console.log(`Webhook URL paths: /webhook/telegram (primary), /webhook/whatsapp (optional)`);
+
+  // Self-register the Telegram webhook so there is no manual setWebhook step.
+  // PUBLIC_BASE_URL wins; on Railway RAILWAY_PUBLIC_DOMAIN is provided automatically.
+  const base =
+    process.env.PUBLIC_BASE_URL ||
+    (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null);
+  if (!telegramMissing.length && base) {
+    const url = `${base.replace(/\/+$/, "")}/webhook/telegram`;
+    telegramClient
+      .setWebhook(url, process.env.TELEGRAM_WEBHOOK_SECRET)
+      .then((r) => console.log(`[startup] Telegram webhook ${r && r.ok ? "registered" : "registration FAILED"}: ${url}`))
+      .catch((err) => console.error("[startup] Telegram webhook registration error:", err.message));
+  } else if (!telegramMissing.length) {
+    console.warn("[startup] Set PUBLIC_BASE_URL (or deploy on Railway with a public domain) to auto-register the Telegram webhook.");
+  }
 });

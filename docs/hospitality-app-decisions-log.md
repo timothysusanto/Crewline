@@ -1,4 +1,4 @@
-# HospitalityOS — Decisions Log
+# Crewline — Decisions Log
 *Written: August 15, 2026 — reconstructed from shipped code and README, since this file was referenced but never created.*
 
 ## Purpose
@@ -80,6 +80,6 @@ Fill rate reads the stored `outcome`, latency reads offer timestamps, margin cal
 Add new dated entries below as decisions are made — log immediately, don't batch.
 
 ### Aug 15, 2026
-- Confirmed `Hospitality-OS` is the actual app repo (distinct from `kitchenfounder-workspace`, which is Claw's general memory/products workspace — the two were previously conflated).
+- Confirmed `Crewline` (renamed from `Hospitality-OS`, Oct 2026) is the actual app repo (distinct from `kitchenfounder-workspace`, which is Claw's general memory/products workspace — the two were previously conflated).
 - Found this file and `docs/backend-build-scope.md` were referenced throughout the README but never actually created — both written today to close that gap.
 - Repo is currently public — recommend setting to private via GitHub repo Settings.

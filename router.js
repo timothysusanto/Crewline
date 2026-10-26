@@ -40,7 +40,7 @@ const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || "demo-venue";
  *
  * @param {object} message   One entry from value.messages[] in the webhook payload
  * @param {object} deps      stores, pendingActions, and optionally `dispatcher`
- * @param {{tenantId: string, phoneNumberId: string, token: string|null}|null} tenantContext
+ * @param {{tenantId: string, phoneNumberId?: string, token?: string|null, channel?: "telegram", chatId?: string}|null} tenantContext
  *   Which venue's WhatsApp number this message arrived on (multi-tenant
  *   support). Null in a single-venue deployment — every downstream call
  *   then falls back to the WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_TOKEN env vars.
@@ -60,9 +60,13 @@ async function handleIncoming(message, deps, tenantContext = null) {
   // sendOpts is passed to every sendText/sendLocationRequest call below so
   // replies go out from the correct venue's WhatsApp number once a venue
   // has one of its own — see whatsapp.js.
-  const sendOpts = tenantContext
-    ? { phoneNumberId: tenantContext.phoneNumberId, token: tenantContext.token || undefined }
-    : {};
+  // A Telegram message carries channel + chatId so every reply goes back to
+  // the same chat, and photo downloads use Telegram's file API.
+  const sendOpts = tenantContext?.channel === "telegram"
+    ? { channel: "telegram", chatId: tenantContext.chatId }
+    : tenantContext
+      ? { phoneNumberId: tenantContext.phoneNumberId, token: tenantContext.token || undefined }
+      : {};
 
   const staff = await staffStore.findByPhone(from);
   const tenantId = tenantContext?.tenantId || (staff && staff.tenantId) || DEFAULT_TENANT_ID;

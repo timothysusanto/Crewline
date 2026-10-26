@@ -1,4 +1,4 @@
-# HospitalityOS — Backend Build Scope
+# Crewline — Backend Build Scope
 *Written: August 15, 2026 — reconstructed from shipped code and README, since this file was referenced but never created.*
 
 ## Stack
