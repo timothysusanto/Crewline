@@ -49,6 +49,9 @@ dispatcher logs `[channel] no way to reach …` for anyone not yet linked.
 
 ## Firestore quota
 
-Deploy `firestore.indexes.json` (`npx firebase-tools deploy --only firestore:indexes`) or the
-dashboard reads the whole attendance collection on every load, which is what used up the free
-tier. The staffing-request engine that polled Firestore every 30 seconds has been removed.
+The server creates the composite indexes in `firestore.indexes.json` itself on boot
+(`ensureIndexes.js`, via the Firestore Admin API with the same service account). Look for
+`[indexes] creating …` or `[indexes] all … present` in the deploy log. If it logs a 403, grant the
+service account **Cloud Datastore Index Admin** in IAM once, or create the indexes in the console.
+Without them the dashboard reads the whole attendance collection on every load, which is what
+used up the free tier.

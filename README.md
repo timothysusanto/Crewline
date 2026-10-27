@@ -31,7 +31,7 @@ npm test
 ```
 
 On Railway: push to `main`, set the same variables, done — the server registers its own Telegram
-webhook on boot. Deploy `firestore.indexes.json` once (see `docs/telegram-channel.md`).
+webhook and creates its Firestore indexes on boot.
 
 ## History
 

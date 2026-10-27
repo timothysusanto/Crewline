@@ -12,6 +12,7 @@
  */
 
 let _db = null;
+let _serviceAccount = null;
 let _attempted = false;
 
 function getFirestoreDb() {
@@ -31,6 +32,7 @@ function getFirestoreDb() {
     const serviceAccount = JSON.parse(raw);
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
     _db = admin.firestore();
+    _serviceAccount = serviceAccount;
     console.log("[firebase] connected to Firestore project:", serviceAccount.project_id);
     return _db;
   } catch (err) {
@@ -39,4 +41,9 @@ function getFirestoreDb() {
   }
 }
 
-module.exports = { getFirestoreDb };
+/** The parsed service account, once getFirestoreDb() has run — for the Admin REST API (ensureIndexes.js). */
+function getServiceAccount() {
+  return _serviceAccount;
+}
+
+module.exports = { getFirestoreDb, getServiceAccount };

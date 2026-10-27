@@ -992,6 +992,15 @@ app.listen(PORT, () => {
   console.log(`Crewline listening on :${PORT}`);
   console.log(`Webhook URL paths: /webhook/telegram (primary), /webhook/whatsapp (optional)`);
 
+  // Create any missing Firestore composite indexes (firestore.indexes.json).
+  // Without them the dashboard reads the whole attendance collection per load.
+  const { getServiceAccount } = require("./firebase");
+  if (getServiceAccount()) {
+    require("./ensureIndexes")
+      .ensureIndexes({ serviceAccount: getServiceAccount() })
+      .catch((err) => console.error("[indexes] failed:", err.message));
+  }
+
   // Self-register the Telegram webhook so there is no manual setWebhook step.
   // PUBLIC_BASE_URL wins; on Railway RAILWAY_PUBLIC_DOMAIN is provided automatically.
   const base =
