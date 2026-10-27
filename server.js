@@ -994,11 +994,21 @@ app.listen(PORT, () => {
 
   // Create any missing Firestore composite indexes (firestore.indexes.json).
   // Without them the dashboard reads the whole attendance collection per load.
+  // Retries every 30 minutes while any index is still missing (e.g. until the
+  // service account is granted "Cloud Datastore Index Admin"), then stops.
   const { getServiceAccount } = require("./firebase");
   if (getServiceAccount()) {
-    require("./ensureIndexes")
-      .ensureIndexes({ serviceAccount: getServiceAccount() })
-      .catch((err) => console.error("[indexes] failed:", err.message));
+    const { ensureIndexes } = require("./ensureIndexes");
+    const tryIndexes = async () => {
+      try {
+        const r = await ensureIndexes({ serviceAccount: getServiceAccount() });
+        if (r.failed.length) setTimeout(tryIndexes, 30 * 60 * 1000).unref();
+      } catch (err) {
+        console.error("[indexes] failed:", err.message);
+        setTimeout(tryIndexes, 30 * 60 * 1000).unref();
+      }
+    };
+    tryIndexes();
   }
 
   // Self-register the Telegram webhook so there is no manual setWebhook step.

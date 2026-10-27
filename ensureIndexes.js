@@ -97,6 +97,10 @@ async function ensureIndexes({ serviceAccount, indexesFile, fetchImpl = fetch, g
       } else {
         result.failed.push(label(ix));
         console.error(`[indexes] create failed for ${label(ix)}:`, res.status, JSON.stringify(json.error || json).slice(0, 300));
+        if (res.status === 403) {
+          console.error(`[indexes] grant ${serviceAccount.client_email} the role "Cloud Datastore Index Admin" at ` +
+            `https://console.cloud.google.com/iam-admin/iam?project=${serviceAccount.project_id} — the server retries every 30 min.`);
+        }
       }
     } catch (err) {
       result.failed.push(label(ix));
