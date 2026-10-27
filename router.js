@@ -4,46 +4,24 @@ const { sendText } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
 const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
 const { handleSpendCommand } = require("./foodCostHandler");
-const { handleOfferReply, looksLikeOfferReply } = require("./offerHandler");
+const { handleRosterReply, looksLikeRosterReply } = require("./rosterReplyHandler");
 const {
   looksLikeAvailabilityReply, handleSameAgain, handleNotAvailable,
-  handleFreeToday, handleShorthand, SAME_RE, NONE_RE, TODAY_RE,
+  handleShorthand, SAME_RE, NONE_RE,
 } = require("./availabilityCapture");
-const { handleClientMessage, requesterSites } = require("./intakeHandler");
 
 /**
- * Fallback tenant for a sender we can't attribute — matches server.js's
- * DASHBOARD_TENANT_ID. Only used to look up whether an unknown number is a
- * registered requester; it grants nothing on its own.
- */
-const DEFAULT_TENANT_ID = process.env.DEFAULT_TENANT_ID || "demo-venue";
-
-/**
- * Route a single incoming WhatsApp message.
+ * Route a single incoming staff message (Telegram or WhatsApp — the webhook
+ * has already turned it into { from: phone, type, text|location|image }).
  *
- * ## One number, two conversations
+ * Only registered staff get through. Fixed command words are checked first,
+ * then the pending-reply hooks (wallet / food safety / training), then the
+ * availability words, then roster YES/SWAP, and finally the availability
+ * shorthand, which is the only free-form parser and declines what it can't read.
  *
- * Staff and hotels run on the same WhatsApp number, and **sender identity
- * decides which conversation you're in** (docs/agencymodelshape.md step 4). The
- * order below matters:
- *
- *   1. A number registered as a requester on a site is a **client** ordering
- *      staff. Checked first, because a hotel manager who is also on the staff
- *      list — an agency's own supervisor covering a shift — is ordering when
- *      they type "need 3 housekeepers", not clocking in.
- *   2. A number in the staff collection is a **worker**.
- *   3. Anything else is asked to have its manager register it. Only registered
- *      numbers can order, and only registered numbers can work.
- *
- * A client's message never reaches the staff commands, so "no" from a hotel
- * cancelling a draft can't be read as declining a shift offer.
- *
- * @param {object} message   One entry from value.messages[] in the webhook payload
- * @param {object} deps      stores, pendingActions, and optionally `dispatcher`
+ * @param {object} message
+ * @param {object} deps      stores and pendingActions
  * @param {{tenantId: string, phoneNumberId?: string, token?: string|null, channel?: "telegram", chatId?: string}|null} tenantContext
- *   Which venue's WhatsApp number this message arrived on (multi-tenant
- *   support). Null in a single-venue deployment — every downstream call
- *   then falls back to the WHATSAPP_PHONE_NUMBER_ID/WHATSAPP_TOKEN env vars.
  */
 const { handleWalletCommand, handleWalletReply, handleCredentialPhoto } = require("./walletHandler");
 const {
@@ -69,36 +47,14 @@ async function handleIncoming(message, deps, tenantContext = null) {
       : {};
 
   const staff = await staffStore.findByPhone(from);
-  const tenantId = tenantContext?.tenantId || (staff && staff.tenantId) || DEFAULT_TENANT_ID;
-  const clientSites = await requesterSites(tenantId, from, deps);
+  const tenantId = tenantContext?.tenantId || (staff && staff.tenantId) || null;
 
-  console.log(
-    `[incoming] from=${from} type=${type} tenant=${tenantId} ` +
-      `as=${clientSites ? `client(${clientSites.map((s) => s.siteId).join("|")})` : staff ? `${staff.name}/${staff.role}` : "UNKNOWN"}`
-  );
-
-  // 1. A hotel ordering staff.
-  if (clientSites && type === "text") {
-    const body = (message.text?.body || "").trim().toLowerCase();
-    await handleClientMessage(from, clientSites, body, deps, sendOpts);
-    return;
-  }
-  if (clientSites) {
-    await sendText(
-      from,
-      "Thanks — I can only read text messages here. Tell me what you need, e.g. " +
-        '"3 housekeepers tomorrow 7am-3pm".',
-      sendOpts
-    );
-    return;
-  }
+  console.log(`[incoming] from=${from} type=${type} tenant=${tenantId} as=${staff ? `${staff.name}/${staff.role}` : "UNKNOWN"}`);
 
   if (!staff) {
     await sendText(
       from,
-      "Hi! This number isn't registered yet. If you're staff, ask your manager to add you. " +
-        "If you're booking staff, ask your manager to register this number for your hotel. " +
-        "Then message again.",
+      "Hi! This number isn't registered yet. Ask your manager to add you, then message again.",
       sendOpts
     );
     return;
@@ -175,16 +131,14 @@ async function handleIncoming(message, deps, tenantContext = null) {
     if (await handleTrainingReply(from, staff, body, tenantId, deps, sendOpts)) return;
     // The weekly availability words — rungs 1, 2 and 5 of the capture ladder.
     if (looksLikeAvailabilityReply(body)) {
-      if (TODAY_RE.test(body)) await handleFreeToday(from, staff, deps, sendOpts);
-      else if (NONE_RE.test(body)) await handleNotAvailable(from, staff, deps, sendOpts);
+      if (NONE_RE.test(body)) await handleNotAvailable(from, staff, deps, sendOpts);
       else if (SAME_RE.test(body)) await handleSameAgain(from, staff, deps, sendOpts);
       return;
     }
-    // Answering a shift offer. Checked after the fixed words so it can never
-    // shadow a clock or availability command, and only when the message
-    // actually opens with a yes/no.
-    if (looksLikeOfferReply(body)) {
-      await handleOfferReply(from, staff, body, deps, sendOpts);
+    // Answering a published roster. After the fixed words so it can never
+    // shadow a command, and only when the message opens with yes/swap.
+    if (looksLikeRosterReply(body)) {
+      await handleRosterReply(from, staff, body, deps, sendOpts);
       return;
     }
     // Rung 4 — the shorthand. Last, because it is the only handler that reads a
@@ -195,8 +149,8 @@ async function handleIncoming(message, deps, tenantContext = null) {
     await sendText(
       from,
       `Hi ${staff.name} — commands: "in"/"out" to clock in/out, "break"/"back" for breaks, ` +
-        `"yes"/"no" to answer a shift offer, "same" to repeat last week's availability, ` +
-        `"today" to join today's pool, "mon am pm, fri all" to set your week, ` +
+        `"yes" to confirm your roster or "swap" to ask for a change, "same" to repeat last week's availability, ` +
+        `"mon am pm, fri all" to set your week, ` +
         `"roster" to see your shifts, "wallet" to see your credentials (or send a photo of one to file it), ` +
         `"temps" to run temperature checks, "clean" for the cleaning list, "train" for training modules, ` +
         `"spend 420 bidfood" to log a delivery.`,

@@ -7,7 +7,6 @@ const {
   patternFromDays, describeDays, describePattern, describeWeek, normalizeBlocks,
 } = require("./availabilityBlocks");
 const { isSubmitted } = require("./availabilityStore");
-const { minutesRemaining } = require("./freeTodayStore");
 
 /**
  * Capture — nobody in the office types availability.
@@ -152,11 +151,10 @@ async function sendPing(staff, weekStart, deps, sendOpts, chase) {
 
 const SAME_RE = /^(same|same again|as usual|usual|repeat)\b/;
 const NONE_RE = /^(none|nothing|not available|unavailable|no shifts)\b/;
-const TODAY_RE = /^(today|free today|im free|i'?m free|available today)\b/;
 
 /** Whether a message is one of the availability words. */
 function looksLikeAvailabilityReply(body) {
-  return SAME_RE.test(body) || NONE_RE.test(body) || TODAY_RE.test(body);
+  return SAME_RE.test(body) || NONE_RE.test(body);
 }
 
 /**
@@ -218,29 +216,6 @@ async function handleNotAvailable(from, staff, deps, sendOpts = {}, now = new Da
   return true;
 }
 
-/**
- * "today" — rung 5, the free-today pool. Opt-in, self-expiring, and the only
- * thing that can put somebody in it is this message from them.
- */
-async function handleFreeToday(from, staff, deps, sendOpts = {}, now = new Date()) {
-  const { freeTodayStore } = deps;
-  if (!freeTodayStore) {
-    await sendText(from, "The same-day pool isn't switched on yet — sorry.", sendOpts);
-    return true;
-  }
-  const doc = await freeTodayStore.declare(staff.tenantId, from, now);
-  const until = new Date(doc.expiresAt).toLocaleTimeString("en-AU", {
-    hour: "numeric", minute: "2-digit", hour12: true,
-  });
-  const minutes = minutesRemaining(doc, now);
-  await sendText(
-    from,
-    `You're in the pool for today until ${until} (${minutes >= 60 ? `${Math.round(minutes / 60)}h` : `${minutes} min`}).\n` +
-      "You'll get first refusal on anything that comes up.",
-    sendOpts
-  );
-  return true;
-}
 
 /**
  * Rung 4 — the text shorthand. Also the fallback for anything that parses as
@@ -290,12 +265,10 @@ module.exports = {
   looksLikeAvailabilityReply,
   handleSameAgain,
   handleNotAvailable,
-  handleFreeToday,
   handleShorthand,
   gridModel,
   SAME_RE,
   NONE_RE,
-  TODAY_RE,
   ASK_DAY,
   CHASE_DAY,
   PING_HOUR,

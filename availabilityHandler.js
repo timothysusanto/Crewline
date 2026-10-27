@@ -1,7 +1,7 @@
 "use strict";
 
 const { sendText } = require("./whatsapp");
-const { normalizeAssignment, mondayOf } = require("./rosterStore");
+const { mondayOf } = require("./rosterStore");
 
 /**
  * WhatsApp commands for casual-staff availability and roster viewing.
@@ -139,40 +139,25 @@ const SLOT_LABELS = { AM: "AM", PM: "PM", ALL: "all day" };
 /** Handles "roster" — shows this week + next week's published assignments. */
 async function handleRosterQuery(from, staff, deps, sendOpts) {
   const { rosterStore, siteStore } = deps;
-  const thisMonday = mondayOf(new Date());
-  const nextMonday = mondayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-  const weeks = await rosterStore.getPublishedWeeks(staff.tenantId, [thisMonday, nextMonday]);
+  const shifts = await rosterStore.listUpcomingForWorker(staff.tenantId, from);
 
-  // An assignment names the building it's at, so the reply has to as well —
-  // a casual working three hotels this week can't act on "Tue — AM" alone.
-  const siteNames = new Map();
-  if (siteStore) {
-    const sites = await siteStore.listByTenant(staff.tenantId, { includeInactive: true });
-    for (const site of sites) siteNames.set(site.siteId, site.name);
-  }
-
-  const lines = [];
-  for (const week of weeks) {
-    for (const [date, dayAssignments] of Object.entries(week.assignments || {})) {
-      const assignment = normalizeAssignment(dayAssignments[from]);
-      if (!assignment) continue;
-      if (date < new Date().toISOString().slice(0, 10)) continue; // past days: skip
-      const label = new Date(date + "T00:00:00").toLocaleDateString("en-AU", {
-        weekday: "short", day: "numeric", month: "short",
-      });
-      const site = assignment.siteId ? siteNames.get(assignment.siteId) : null;
-      const slotLabel = SLOT_LABELS[assignment.slot] || assignment.slot;
-      lines.push({ date, text: `${label} — ${slotLabel}${site ? ` @ ${site}` : ""}` });
-    }
-  }
-
-  if (lines.length === 0) {
+  if (shifts.length === 0) {
     await sendText(from, "No upcoming published shifts for you yet — check back once your manager publishes the roster.", sendOpts);
     return true;
   }
 
-  lines.sort((a, b) => (a.date < b.date ? -1 : 1));
-  await sendText(from, `Your upcoming shifts:\n${lines.map((l) => l.text).join("\n")}`, sendOpts);
+  const siteNames = new Map();
+  if (siteStore && shifts.some((s) => s.siteId)) {
+    const sites = await siteStore.listByTenant(staff.tenantId, { includeInactive: true });
+    for (const site of sites) siteNames.set(site.siteId, site.name);
+  }
+
+  const lines = shifts.map((s) => {
+    const label = new Date(s.date + "T00:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+    const site = s.siteId ? siteNames.get(s.siteId) : null;
+    return `${label} — ${s.start}–${s.end}${s.role ? ` (${s.role})` : ""}${site ? ` @ ${site}` : ""}`;
+  });
+  await sendText(from, `Your upcoming shifts:\n${lines.join("\n")}\n\nReply YES to confirm or SWAP if you need a change.`, sendOpts);
   return true;
 }
 

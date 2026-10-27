@@ -83,3 +83,12 @@ Add new dated entries below as decisions are made — log immediately, don't bat
 - Confirmed `Crewline` (renamed from `Hospitality-OS`, Oct 2026) is the actual app repo (distinct from `kitchenfounder-workspace`, which is Claw's general memory/products workspace — the two were previously conflated).
 - Found this file and `docs/backend-build-scope.md` were referenced throughout the README but never actually created — both written today to close that gap.
 - Repo is currently public — recommend setting to private via GitHub repo Settings.
+
+## 2026-10-27 — Crewline: cut the agency layer, one roster, one people list
+- Renamed Shiftfolk → Crewline. Telegram is the primary channel; WhatsApp optional (`whatsapp.js` is a dispatcher).
+- Removed the labour-hire model entirely: hotel requesters, staffing requests, the dispatch blast engine, offers, sign-off, bill rates, margin and agency reports, free-today pool, reliability counters, the compliance gate. Spec kept in `docs/archive/agencymodelshape.md`.
+- One roster: the Core OS roster (`tenants/{t}/shifts`, real start/end times, award costing). The old slot-based dashboard roster board and `rosters` collection are gone. Clock-in reads the rostered site/role/start from the same shifts.
+- One people list: the roster page's workers are now `staff/{phone}` — the same records the bot links Telegram chats to. workerId == phone.
+- Roster replies work: YES confirms, SWAP flags and tells linked managers.
+- P&L inputs (revenue forecast, stocktake) moved to `tenant.weeks[week]` via `POST /api/weeks/:week`.
+- Positioning: Crewline ships inside the KitchenFounder $29/mo Pro tier (up to 15 staff); not a separate SKU until someone asks.

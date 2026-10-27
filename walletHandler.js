@@ -160,7 +160,7 @@ async function saveCredential(from, staff, tenantId, draft, sendOpts) {
   const db = getFirestoreDb();
   const label = CREDENTIAL_TYPES[draft.type].label;
   await db.collection("tenants").doc(tenantId).collection("credentials").add({
-    workerId: staff.id || null,
+    workerId: from,
     workerPhone: from,
     workerName: staff.name || null,
     type: draft.type, label,
@@ -168,7 +168,7 @@ async function saveCredential(from, staff, tenantId, draft, sendOpts) {
     expiryDate: draft.expiryDate,
     fileUrl: draft.fileUrl || null,
     waMediaId: draft.waMediaId || null,
-    source: "whatsapp",
+    source: sendOpts.channel || "whatsapp",
     nudgesSent: {},
     createdAt: new Date().toISOString(),
   });

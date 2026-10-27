@@ -1,0 +1,22 @@
+{
+  "_comment": "Composite indexes Crewline needs. Deploy with: npx firebase-tools deploy --only firestore:indexes --project hospitality-os-b9eab  (or create each one in Firebase console → Firestore → Indexes). Without the first one every dashboard load reads the whole attendance collection, which is what burns the free-tier quota.",
+  "indexes": [
+    {
+      "collectionGroup": "shifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tenantId", "order": "ASCENDING" },
+        { "fieldPath": "clockIn.time", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "shifts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workerId", "order": "ASCENDING" },
+        { "fieldPath": "date", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

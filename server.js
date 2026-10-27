@@ -13,23 +13,14 @@ const { verifyMetaSignature } = require("./verifySignature");
 const { sendText, setChannelResolver } = require("./whatsapp");
 const { handleTelegramUpdate, verifyTelegramSecret } = require("./telegramWebhook");
 const telegramClient = require("./telegramClient");
-const { SLOT_LABELS } = require("./availabilityHandler");
 const { handleIncoming } = require("./router");
 const { buildStores } = require("./stores");
 const { InMemoryPendingActions } = require("./pendingActions");
-const { normalizeAssignment, normalizeAssignments } = require("./rosterStore");
 const { normalizeGeofence, slugifySiteId, MIN_RADIUS_METERS, MAX_RADIUS_METERS } = require("./siteStore");
-const { laneFor, seatsRemaining } = require("./requestsStore");
-const { createDispatcher } = require("./dispatch");
 const { verify: verifyLink, isConfigured: linksConfigured } = require("./signedLinks");
 const { gridModel, nextWeekStart } = require("./availabilityCapture");
 const { normalizeDays, declaredCellCount, isSubmitted } = require("./availabilityStore");
 const { weekStartOf, weekDates, BLOCKS, DAY_KEYS, normalizeBlocks } = require("./availabilityBlocks");
-const {
-  normalizeCompliance, compliancePipeline, committedHours, hoursCapOf, PIPELINE_DAYS,
-} = require("./compliance");
-const { normalizeOnCosts, costMultiplier, summarize, shiftMargin } = require("./margin");
-const { agencyReport } = require("./reports");
 
 // The single venue this build supports so far (see decisions log — multi-
 // tenant support is a later step). The dashboard is scoped to this tenant.
@@ -37,14 +28,12 @@ const DASHBOARD_TENANT_ID = "demo-venue";
 
 const app = express();
 const {
-  staffStore, tenantStore, siteStore, requestsStore, offersStore,
-  availabilityStore, freeTodayStore,
+  staffStore, tenantStore, siteStore, availabilityStore,
   shiftsStore, rosterStore, purchasesStore, backend,
 } = buildStores();
 const pendingActions = new InMemoryPendingActions();
 const deps = {
-  staffStore, tenantStore, siteStore, requestsStore, offersStore,
-  availabilityStore, freeTodayStore,
+  staffStore, tenantStore, siteStore, availabilityStore,
   shiftsStore, rosterStore, purchasesStore, pendingActions,
 };
 
@@ -56,23 +45,17 @@ console.log(`[startup] data backend: ${backend}`);
 // unreachable until they message the bot once.
 setChannelResolver(async (phone) => (await staffStore.findByPhone(phone))?.telegramChatId || null);
 
-/**
- * The blast engine's tick loop (docs/agencymodelshape.md step 2). All dispatch
- * state lives on the request documents, so starting this on boot picks up any
- * blast that was mid-flight when the process last stopped.
- *
- * Set DISPATCH_DISABLED=1 to run the server without it — useful when pointing
- * a second instance at the same Firestore project for debugging, so two tick
- * loops don't both blast the same request.
- */
-const dispatcher = createDispatcher(DASHBOARD_TENANT_ID, deps, {});
-// The intake flow kicks a pass the moment a hotel confirms an order, rather than
-// letting a 5:40am request wait up to a tick interval.
-deps.dispatcher = dispatcher;
-if (process.env.DISPATCH_DISABLED === "1") {
-  console.warn("[startup] DISPATCH_DISABLED=1 — the blast engine is NOT running");
+// Weekly availability pings ("what can you work next week?") — checked hourly.
+// This used to ride on the staffing-request engine's 30-second tick; hourly is
+// plenty and keeps Firestore reads well inside the free tier.
+const { sweepWeeklyPings } = require("./availabilityCapture");
+if (process.env.AVAILABILITY_PINGS_DISABLED === "1") {
+  console.warn("[startup] AVAILABILITY_PINGS_DISABLED=1 — weekly availability pings are off");
 } else {
-  dispatcher.start();
+  const pingTick = () =>
+    sweepWeeklyPings(DASHBOARD_TENANT_ID, deps, {}).catch((err) => console.error("[pings] sweep failed:", err.message));
+  setTimeout(pingTick, 60 * 1000);
+  setInterval(pingTick, 60 * 60 * 1000).unref();
 }
 
 // Capture the raw body — Meta's signature is computed over raw bytes,
@@ -481,7 +464,7 @@ app.get("/api/sites", requireDashboardKey, async (_req, res) => {
 /**
  * POST /api/sites — create or update a site.
  * Body: { siteId?, name, address?, geofence: {lat, lng, radiusMeters},
- *         requesters?: [{phone, name}], billRates?: {[role]: number} }
+ *       }
  *
  * `siteId` is a slug derived from the name when not supplied, so it reads
  * usefully on a shift record. It is never regenerated on update — renaming
@@ -510,66 +493,18 @@ app.post("/api/sites", requireDashboardKey, async (req, res) => {
       });
     }
 
-    const requesters = Array.isArray(body.requesters)
-      ? body.requesters
-          .map((r) => ({
-            phone: String((r && r.phone) || "").replace(/[^\d]/g, ""),
-            name: r && r.name ? String(r.name).trim() : null,
-          }))
-          .filter((r) => r.phone)
-      : undefined;
-
-    let billRates;
-    if (body.billRates && typeof body.billRates === "object") {
-      billRates = {};
-      for (const [role, rate] of Object.entries(body.billRates)) {
-        const n = Number(rate);
-        if (isFinite(n) && n >= 0) billRates[String(role).trim()] = n;
-      }
-    }
 
     const site = await siteStore.upsert(siteId, {
       tenantId: DASHBOARD_TENANT_ID,
       name,
       address: body.address,
       geofence,
-      ...(requesters ? { requesters } : {}),
-      ...(billRates ? { billRates } : {}),
       active: body.active !== false,
     });
     res.json({ ok: true, site });
   } catch (err) {
     console.error("[sites] failed to save:", err);
     res.status(500).json({ error: "Failed to save site." });
-  }
-});
-
-/**
- * POST /api/sites/:id/requesters — who at this hotel may order staff.
- * Body: { requesters: [{ phone, name }] }
- *
- * **Only registered numbers can order** (docs/agencymodelshape.md step 4). This
- * list is the gate: an unknown number that messages in gets asked to have its
- * manager register it, never a shift. Replaces the whole list, so removing
- * somebody who has left is a normal edit rather than a special case.
- */
-app.post("/api/sites/:id/requesters", requireDashboardKey, async (req, res) => {
-  try {
-    const site = await siteStore.findById(req.params.id);
-    if (!site || site.tenantId !== DASHBOARD_TENANT_ID) {
-      return res.status(404).json({ error: "No site with that id." });
-    }
-    if (!Array.isArray(req.body?.requesters)) {
-      return res.status(400).json({ error: "requesters must be an array of {phone, name}." });
-    }
-    const updated = await siteStore.setRequesters(site.siteId, req.body.requesters);
-    res.json({ ok: true, site: updated });
-  } catch (err) {
-    if (err.message === "SITE_NOT_FOUND") {
-      return res.status(404).json({ error: "No site with that id." });
-    }
-    console.error("[sites] failed to set requesters:", err);
-    res.status(500).json({ error: "Failed to update requesters." });
   }
 });
 
@@ -591,566 +526,6 @@ app.post("/api/sites/:id/active", requireDashboardKey, async (req, res) => {
     res.status(500).json({ error: "Failed to update site." });
   }
 });
-
-/**
- * GET /api/reports/agency?from=&to=&week= — every agency number in one call
- * (docs/agencymodelshape.md step 7).
- *
- * Fill rate, time to fill, lost demand, reliability, response latency, margin,
- * client hours, the free-today histogram and the supply-vs-demand grid. Every
- * one that can split by lane does, because blending planned and urgent hides
- * both — a planned miss is an ops failure and an urgent miss is a supply problem.
- */
-app.get("/api/reports/agency", requireDashboardKey, async (req, res) => {
-  try {
-    const from = req.query.from ? new Date(`${String(req.query.from)}T00:00:00`) : null;
-    const to = req.query.to ? new Date(`${String(req.query.to)}T23:59:59`) : null;
-    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
-      return res.status(400).json({ error: "from and to must be YYYY-MM-DD." });
-    }
-    const weekStart = req.query.week ? weekStartOf(`${String(req.query.week)}T12:00:00`) : null;
-
-    const report = await agencyReport(DASHBOARD_TENANT_ID, { from, to, weekStart }, deps);
-    res.json(report);
-  } catch (err) {
-    console.error("[reports] failed to build the agency report:", err);
-    res.status(500).json({ error: "Failed to build the report." });
-  }
-});
-
-/**
- * Bill rates, sign-off and margin (docs/agencymodelshape.md step 6).
- *
- * POST /api/sites/:id/bill-rates
- * Body: { billRates: { housekeeping: 42.5, default: 39 } }
- *
- * `default` is the fallback for a role the rate card doesn't name. A role with
- * neither is reported as unbillable rather than billed at zero, which would look
- * like a loss-making placement in the margin report.
- */
-app.post("/api/sites/:id/bill-rates", requireDashboardKey, async (req, res) => {
-  try {
-    const site = await siteStore.findById(req.params.id);
-    if (!site || site.tenantId !== DASHBOARD_TENANT_ID) {
-      return res.status(404).json({ error: "No site with that id." });
-    }
-    const billRates = {};
-    for (const [role, rate] of Object.entries((req.body || {}).billRates || {})) {
-      const n = Number(rate);
-      const key = String(role).trim().toLowerCase();
-      if (key && Number.isFinite(n) && n >= 0) billRates[key] = n;
-    }
-    const updated = await siteStore.upsert(site.siteId, { billRates });
-    res.json({ ok: true, site: updated });
-  } catch (err) {
-    console.error("[margin] failed to save bill rates:", err);
-    res.status(500).json({ error: "Failed to save bill rates." });
-  }
-});
-
-/**
- * POST /api/settings/on-costs — casual loading, super, payroll tax, workers' comp.
- *
- * Starting points the operator confirms, exactly like the penalty presets. Not
- * advice, and not award interpretation. Order of application matters and is
- * handled in margin.js: loading is part of the wage, so the rest is levied on the
- * loaded wage, not the base.
- */
-app.post("/api/settings/on-costs", requireDashboardKey, async (req, res) => {
-  try {
-    const onCosts = normalizeOnCosts(req.body || {});
-    await tenantStore.updateSettings(DASHBOARD_TENANT_ID, { onCosts });
-    res.json({ ok: true, onCosts, costMultiplier: costMultiplier(onCosts) });
-  } catch (err) {
-    console.error("[margin] failed to save on-costs:", err);
-    res.status(500).json({ error: "Failed to save on-costs." });
-  }
-});
-
-/**
- * POST /api/shifts/:id/signoff — the operator signing off on the client's behalf.
- * Body: { approve: boolean, note?: string }
- *
- * Exists because a phone call still happens: the supervisor rings, the operator
- * records it here, and the written trail is what wins an invoice dispute.
- */
-app.post("/api/shifts/:id/signoff", requireDashboardKey, async (req, res) => {
-  try {
-    const approve = Boolean(req.body?.approve);
-    const note = req.body?.note ? String(req.body.note).trim() : null;
-    const updated = await shiftsStore.signOffShift(req.params.id, {
-      approve,
-      by: `operator:${req.body?.by ? String(req.body.by).trim() : "dashboard"}`,
-      note,
-    });
-    res.json({ ok: true, shift: updated });
-  } catch (err) {
-    if (err.message === "SHIFT_NOT_FOUND") {
-      return res.status(404).json({ error: "No shift with that id." });
-    }
-    console.error("[signoff] failed:", err);
-    res.status(500).json({ error: "Failed to sign off that shift." });
-  }
-});
-
-/**
- * GET /api/reports/margin?from=&to= — bill less pay less on-costs, split by lane.
- *
- * **Blending planned and urgent hides both.** Urgent skews to nights and
- * weekends, so billing it flat while paying penalties loses money; reported
- * apart, the urgent column becomes a sales asset you can price against.
- */
-app.get("/api/reports/margin", requireDashboardKey, async (req, res) => {
-  try {
-    const from = req.query.from ? new Date(`${String(req.query.from)}T00:00:00`) : new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-    const to = req.query.to ? new Date(`${String(req.query.to)}T23:59:59`) : new Date();
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
-      return res.status(400).json({ error: "from and to must be YYYY-MM-DD." });
-    }
-
-    const [all, tenant] = await Promise.all([
-      shiftsStore.listRecentByTenant(DASHBOARD_TENANT_ID, from.toISOString()),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
-    ]);
-    const onCosts = normalizeOnCosts(tenant && tenant.onCosts);
-
-    const worked = all.filter(
-      (s) =>
-        s.clockOut && !s.clockOut.denied &&
-        new Date(s.clockIn.time) >= from && new Date(s.clockIn.time) <= to
-    );
-
-    // Only approved hours are invoiceable. Unapproved ones are reported
-    // separately rather than counted, so a margin figure can't be inflated by
-    // hours a client hasn't agreed to yet.
-    const approved = worked.filter((s) => s.approvedAt);
-    const summary = summarize(approved, onCosts);
-
-    const perSite = {};
-    for (const shift of approved) {
-      const key = shift.siteId || "no-site";
-      if (!perSite[key]) perSite[key] = { siteId: key, siteName: shift.siteName || null, hours: 0, bill: 0, margin: 0 };
-      const m = shiftMargin(shift, onCosts);
-      perSite[key].hours = Math.round((perSite[key].hours + m.hours) * 100) / 100;
-      perSite[key].bill = Math.round((perSite[key].bill + m.bill) * 100) / 100;
-      perSite[key].margin = Math.round((perSite[key].margin + m.margin) * 100) / 100;
-    }
-
-    res.json({
-      from: from.toISOString(),
-      to: to.toISOString(),
-      onCosts,
-      costMultiplier: costMultiplier(onCosts),
-      ...summary,
-      perSite: Object.values(perSite).sort((a, b) => b.bill - a.bill),
-      awaitingSignoff: worked.filter((s) => !s.approvedAt && !s.queriedAt).length,
-      queried: worked.filter((s) => s.queriedAt).length,
-    });
-  } catch (err) {
-    console.error("[margin] failed to build report:", err);
-    res.status(500).json({ error: "Failed to build the margin report." });
-  }
-});
-
-/**
- * Compliance (docs/agencymodelshape.md step 5). **A gate, not a display panel** —
- * these endpoints maintain and report on the same functions dispatch.js uses to
- * block a placement, so the report can never disagree with what actually blocks.
- *
- * POST /api/staff/:phone/compliance
- * Body: { compliance: { rsa: {expiresAt, ref?}, visa: {expiresAt, hoursCapPerFortnight?}, ... } }
- *
- * Replaces the whole map, so clearing a document that was recorded in error is a
- * normal edit. A document with no readable expiry or reference is dropped rather
- * than stored as an empty object that looks like a held document.
- */
-app.post("/api/staff/:phone/compliance", requireDashboardKey, async (req, res) => {
-  try {
-    const phone = String(req.params.phone).replace(/[^\d]/g, "");
-    const staff = await staffStore.findByPhone(phone);
-    if (!staff || staff.tenantId !== DASHBOARD_TENANT_ID) {
-      return res.status(404).json({ error: "No staff member with that number." });
-    }
-    const compliance = normalizeCompliance((req.body || {}).compliance);
-    await staffStore.upsert({ phone, tenantId: DASHBOARD_TENANT_ID, compliance });
-    res.json({ ok: true, compliance });
-  } catch (err) {
-    console.error("[compliance] failed to save:", err);
-    res.status(500).json({ error: "Failed to save compliance." });
-  }
-});
-
-/**
- * GET /api/compliance — the 30-day pipeline: who lapses soon, and how many
- * placements that endangers. Blocked-now first, then soonest to lapse.
- */
-app.get("/api/compliance", requireDashboardKey, async (req, res) => {
-  try {
-    const days = Number(req.query.days) > 0 ? Math.min(365, Number(req.query.days)) : PIPELINE_DAYS;
-    const [rows, tenant] = await Promise.all([
-      compliancePipeline(DASHBOARD_TENANT_ID, deps, new Date(), days),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
-    ]);
-    res.json({
-      days,
-      rows,
-      blockedNow: rows.filter((r) => r.blockedNow).length,
-      endangeredPlacements: rows.reduce((sum, r) => sum + r.endangeredPlacements, 0),
-      rules: (tenant && tenant.complianceRules) || null,
-    });
-  } catch (err) {
-    console.error("[compliance] failed to build pipeline:", err);
-    res.status(500).json({ error: "Failed to load the compliance pipeline." });
-  }
-});
-
-/**
- * POST /api/settings/compliance — which documents a role requires.
- * Body: { requiredForAll: ["police"], requiredByRole: { "food-and-beverage": ["rsa"] } }
- *
- * Only the agency knows what its clients demand, so this is configuration rather
- * than a built-in list. Leaving it unset still blocks anybody holding an expired
- * document — that rule needs no setup to be correct.
- */
-app.post("/api/settings/compliance", requireDashboardKey, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const key = (k) => String(k).trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-    const list = (v) => (Array.isArray(v) ? [...new Set(v.map(key).filter(Boolean))] : []);
-
-    const requiredByRole = {};
-    if (body.requiredByRole && typeof body.requiredByRole === "object") {
-      for (const [role, docs] of Object.entries(body.requiredByRole)) {
-        const cleanRole = String(role).trim().toLowerCase();
-        const cleanDocs = list(docs);
-        if (cleanRole && cleanDocs.length) requiredByRole[cleanRole] = cleanDocs;
-      }
-    }
-    const complianceRules = { requiredForAll: list(body.requiredForAll), requiredByRole };
-    await tenantStore.updateSettings(DASHBOARD_TENANT_ID, { complianceRules });
-    res.json({ ok: true, complianceRules });
-  } catch (err) {
-    console.error("[compliance] failed to save rules:", err);
-    res.status(500).json({ error: "Failed to save compliance rules." });
-  }
-});
-
-/**
- * GET /api/hours?phone=… — the fortnight hours cap, per person, across all
- * sites. Student-visa exposure is carried by the agency, so this counts hours
- * everywhere rather than per client.
- */
-app.get("/api/hours", requireDashboardKey, async (req, res) => {
-  try {
-    const until = req.query.until ? new Date(String(req.query.until)) : new Date();
-    if (Number.isNaN(until.getTime())) {
-      return res.status(400).json({ error: "until must be a valid date-time." });
-    }
-    const staff = req.query.phone
-      ? [await staffStore.findByPhone(String(req.query.phone).replace(/[^\d]/g, ""))].filter(Boolean)
-      : await staffStore.listByTenant(DASHBOARD_TENANT_ID);
-
-    const rows = [];
-    for (const person of staff) {
-      if (person.tenantId !== DASHBOARD_TENANT_ID) continue;
-      const cap = hoursCapOf(person);
-      const committed = await committedHours(DASHBOARD_TENANT_ID, person.phone, until, deps);
-      // Everyone gets a row; a cap only some people have.
-      rows.push({
-        phone: person.phone,
-        name: person.name,
-        committed,
-        cap,
-        remaining: cap != null ? Math.round((cap - committed) * 100) / 100 : null,
-        overCap: cap != null && committed > cap,
-      });
-    }
-    rows.sort((a, b) => (b.cap != null) - (a.cap != null) || b.committed - a.committed);
-    res.json({ until: until.toISOString(), fortnightEndingAt: until.toISOString(), rows });
-  } catch (err) {
-    console.error("[hours] failed to compute:", err);
-    res.status(500).json({ error: "Failed to compute hours." });
-  }
-});
-
-/**
- * Staffing requests and the blast engine (docs/agencymodelshape.md step 2).
- *
- * GET /api/requests — live requests first, then the last 7 days, each with a
- * summary of its offers so the operator can see a blast working: which wave
- * it's on, who's been asked, who has answered.
- */
-app.get("/api/requests", requireDashboardKey, async (_req, res) => {
-  try {
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const [open, recent] = await Promise.all([
-      requestsStore.listOpen(DASHBOARD_TENANT_ID),
-      requestsStore.listRecent(DASHBOARD_TENANT_ID, since),
-    ]);
-    const seen = new Set();
-    const requests = [...open, ...recent].filter((r) => {
-      if (seen.has(r.requestId)) return false;
-      seen.add(r.requestId);
-      return true;
-    });
-
-    const withOffers = await Promise.all(
-      requests.map(async (request) => {
-        const offers = await offersStore.listByRequest(request.requestId);
-        const tally = { pending: 0, accepted: 0, declined: 0, expired: 0, lost: 0 };
-        for (const offer of offers) {
-          if (tally[offer.outcome] !== undefined) tally[offer.outcome] += 1;
-        }
-        return {
-          ...request,
-          seatsRemaining: seatsRemaining(request),
-          offers: tally,
-          offered: offers.length,
-          accepted: offers
-            .filter((o) => o.outcome === "accepted")
-            .map((o) => ({ phone: o.phone, respondedAt: o.respondedAt })),
-        };
-      })
-    );
-
-    withOffers.sort((a, b) => (a.createdAt > b.createdAt ? -1 : 1));
-    res.json({ requests: withOffers });
-  } catch (err) {
-    console.error("[requests] failed to list:", err);
-    res.status(500).json({ error: "Failed to load requests." });
-  }
-});
-
-/**
- * POST /api/requests — raise a staffing request and start the blast.
- * Body: { siteId, role?, startsAt, endsAt, headcount, requestedBy? }
- *
- * The lane is NOT accepted from the body. It is derived from `startsAt`, so
- * nobody can mark their own request urgent to jump the queue — under twelve
- * hours out is urgent, and that is the only way to become urgent.
- */
-app.post("/api/requests", requireDashboardKey, async (req, res) => {
-  try {
-    const body = req.body || {};
-
-    const site = body.siteId ? await siteStore.findById(String(body.siteId)) : null;
-    if (!site || site.tenantId !== DASHBOARD_TENANT_ID) {
-      return res.status(400).json({ error: "siteId must be one of this venue's sites." });
-    }
-
-    const startsAt = new Date(body.startsAt);
-    const endsAt = new Date(body.endsAt);
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
-      return res.status(400).json({ error: "startsAt and endsAt must be valid date-times." });
-    }
-    if (endsAt <= startsAt) {
-      return res.status(400).json({ error: "endsAt must be after startsAt." });
-    }
-
-    const headcount = Number(body.headcount);
-    if (!Number.isInteger(headcount) || headcount < 1 || headcount > 50) {
-      return res.status(400).json({ error: "headcount must be a whole number from 1 to 50." });
-    }
-
-    const request = await requestsStore.create({
-      tenantId: DASHBOARD_TENANT_ID,
-      siteId: site.siteId,
-      siteName: site.name,
-      role: body.role ? String(body.role).trim() : null,
-      startsAt: startsAt.toISOString(),
-      endsAt: endsAt.toISOString(),
-      headcount,
-      requestedBy: body.requestedBy ? String(body.requestedBy).replace(/[^\d]/g, "") : null,
-      lane: laneFor(startsAt),
-    });
-
-    // Blast immediately rather than waiting up to a tick interval — at 5:40am
-    // thirty seconds is thirty seconds.
-    dispatcher.runOnce().catch((err) => console.error("[dispatch] kick failed:", err));
-
-    res.json({ ok: true, request });
-  } catch (err) {
-    console.error("[requests] failed to create:", err);
-    res.status(500).json({ error: "Failed to raise that request." });
-  }
-});
-
-/**
- * POST /api/requests/:id/cancel — pull a request. Every still-pending offer is
- * expired so nobody accepts a shift that no longer exists.
- */
-app.post("/api/requests/:id/cancel", requireDashboardKey, async (req, res) => {
-  try {
-    const request = await requestsStore.findById(req.params.id);
-    if (!request || request.tenantId !== DASHBOARD_TENANT_ID) {
-      return res.status(404).json({ error: "No request with that id." });
-    }
-    await offersStore.expirePending(request.requestId);
-    const cancelled = await requestsStore.close(request.requestId, "cancelled");
-    res.json({ ok: true, request: cancelled });
-  } catch (err) {
-    console.error("[requests] failed to cancel:", err);
-    res.status(500).json({ error: "Failed to cancel that request." });
-  }
-});
-
-/**
- * POST /api/dispatch/tick — run one pass of the blast engine now. The loop runs
- * on its own; this exists so an operator can force it after fixing whatever was
- * blocking a request, without waiting for the next tick.
- */
-app.post("/api/dispatch/tick", requireDashboardKey, async (_req, res) => {
-  try {
-    const result = await dispatcher.runOnce();
-    res.json({ ok: true, ...(result || { skipped: "a pass was already running" }) });
-  } catch (err) {
-    console.error("[dispatch] manual tick failed:", err);
-    res.status(500).json({ error: "Dispatch pass failed." });
-  }
-});
-
-/**
- * GET /api/roster?week=YYYY-MM-DD — the roster grid data for one week:
- * the week's assignments plus each staff member's availability, so the
- * dashboard can tint cells and warn on conflicts. Sites come along too —
- * an assignment names the building, so the grid needs the picker options.
- */
-app.get("/api/roster", requireDashboardKey, async (req, res) => {
-  try {
-    const weekStart = String(req.query.week || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
-    }
-    const [roster, staff, sites] = await Promise.all([
-      rosterStore.getWeek(DASHBOARD_TENANT_ID, weekStart),
-      staffStore.listByTenant(DASHBOARD_TENANT_ID),
-      // Inactive included so this payload is interchangeable with
-      // /api/dashboard's — the client filters for the pickers itself.
-      siteStore.listByTenant(DASHBOARD_TENANT_ID, { includeInactive: true }),
-    ]);
-    res.json({ roster, staff, sites });
-  } catch (err) {
-    console.error("[roster] failed to load week:", err);
-    res.status(500).json({ error: "Failed to load roster." });
-  }
-});
-
-/**
- * POST /api/roster — auto-save the whole week's assignments on every cell
- * click. Body: { week: "YYYY-MM-DD",
- *                assignments: {date: {phone: {slot, siteId} | "AM"}} }.
- *
- * Cells are normalized on the way in, and a siteId the tenant doesn't own is
- * stripped rather than stored: a dangling site reference on an assignment
- * becomes a geofence that can never match, which flags a staff member for
- * being exactly where they were told to be.
- */
-app.post("/api/roster", requireDashboardKey, async (req, res) => {
-  try {
-    const { week, assignments } = req.body || {};
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(week || ""))) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD." });
-    }
-    const numOrNull = (v) => (v === null ? null : v !== undefined ? Number(v) : undefined);
-    const extras = {
-      revenueForecast: numOrNull(req.body.revenueForecast),
-      openingStock: numOrNull(req.body.openingStock),
-      closingStock: numOrNull(req.body.closingStock),
-    };
-    const sites = await siteStore.listByTenant(DASHBOARD_TENANT_ID, { includeInactive: true });
-    const knownSiteIds = new Set(sites.map((s) => s.siteId));
-    const clean = normalizeAssignments(assignments, (siteId) => knownSiteIds.has(siteId));
-    const saved = await rosterStore.saveWeek(DASHBOARD_TENANT_ID, week, clean, extras);
-    res.json({ ok: true, roster: saved });
-  } catch (err) {
-    console.error("[roster] failed to save week:", err);
-    res.status(500).json({ error: "Failed to save roster." });
-  }
-});
-
-/**
- * POST /api/roster/publish — marks the week published and WhatsApps every
- * assigned staff member their shifts. Reports per-person delivery results:
- * business-initiated messages can fail outside WhatsApp's 24h customer
- * service window (the permanent fix is Meta template approval — alerts
- * build step), so the manager needs to see who actually got it.
- */
-app.post("/api/roster/publish", requireDashboardKey, async (req, res) => {
-  try {
-    const { week } = req.body || {};
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(week || ""))) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD." });
-    }
-    const roster = await rosterStore.getWeek(DASHBOARD_TENANT_ID, week);
-    const wasPublished = roster.published;
-    const staff = await staffStore.listByTenant(DASHBOARD_TENANT_ID);
-
-    // Multi-tenant correctness: if this venue has its own WhatsApp number,
-    // roster notifications must go out from it — not the default env-var
-    // number. Falls back to {} (env vars) for the single-venue setup.
-    const venue = await tenantStore.findById(DASHBOARD_TENANT_ID);
-    const sendOpts = venue && venue.phoneNumberId
-      ? { phoneNumberId: venue.phoneNumberId, token: venue.whatsappToken || undefined }
-      : {};
-
-    // Site names for the message body — a casual working three hotels this
-    // week needs to be told which one, not just "Tue — AM".
-    const sites = await siteStore.listByTenant(DASHBOARD_TENANT_ID, { includeInactive: true });
-    const siteNames = new Map(sites.map((s) => [s.siteId, s.name]));
-
-    // Collect each person's assigned days across the week.
-    const perStaff = {};
-    for (const [date, dayAssignments] of Object.entries(roster.assignments || {})) {
-      for (const [phone, raw] of Object.entries(dayAssignments)) {
-        const assignment = normalizeAssignment(raw);
-        if (!assignment) continue;
-        (perStaff[phone] = perStaff[phone] || []).push({ date, ...assignment });
-      }
-    }
-
-    // At 500-staff scale, sequential sends would blow past request timeouts —
-    // send in parallel batches instead. Batch size 10 keeps within WhatsApp
-    // API rate comfort while finishing a 400-person publish in seconds.
-    const jobs = Object.entries(perStaff).map(([phone, entries]) => {
-      const person = staff.find((s) => s.phone === phone);
-      entries.sort((a, b) => (a.date < b.date ? -1 : 1));
-      const lines = entries.map((e) => {
-        const label = new Date(e.date + "T00:00:00").toLocaleDateString("en-AU", {
-          weekday: "short", day: "numeric", month: "short",
-        });
-        const site = e.siteId ? siteNames.get(e.siteId) : null;
-        return `${label} — ${SLOT_LABELS[e.slot] || e.slot}${site ? ` @ ${site}` : ""}`;
-      });
-      const heading = wasPublished ? "Your roster has been updated" : "Your roster is out";
-      const body = `${heading}, ${person ? person.name : ""}:\n${lines.join("\n")}`;
-      return { phone, name: person ? person.name : phone, body };
-    });
-
-    const results = [];
-    const BATCH = 10;
-    for (let i = 0; i < jobs.length; i += BATCH) {
-      const batch = jobs.slice(i, i + BATCH);
-      const settled = await Promise.all(
-        batch.map(async (job) => {
-          try {
-            const apiRes = await sendText(job.phone, job.body, sendOpts);
-            return { phone: job.phone, name: job.name, sent: !(apiRes && apiRes.error) };
-          } catch (err) {
-            return { phone: job.phone, name: job.name, sent: false };
-          }
-        })
-      );
-      results.push(...settled);
-    }
-
-    await rosterStore.markPublished(DASHBOARD_TENANT_ID, week);
-    res.json({ ok: true, results });
-  } catch (err) {
-    console.error("[roster] failed to publish:", err);
-    res.status(500).json({ error: "Failed to publish roster." });
-  }
-});
-
 
 /**
  * Penalty-rate settings — a configurable cost-estimation engine, NOT award
@@ -1437,6 +812,37 @@ app.get("/api/reports/payroll", requireDashboardKey, async (req, res) => {
 });
 
 /**
+ * POST /api/weeks/:week — the week's revenue forecast and stocktake, used by
+ * the P&L. Body: { revenueForecast?, openingStock?, closingStock? } (numbers
+ * or null). Stored as tenant.weeks[week].
+ */
+app.post("/api/weeks/:week", requireDashboardKey, async (req, res) => {
+  try {
+    const week = String(req.params.week || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
+      return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
+    }
+    const venue = (await tenantStore.findById(DASHBOARD_TENANT_ID)) || {};
+    const weeks = { ...(venue.weeks || {}) };
+    const cur = { ...(weeks[week] || {}) };
+    for (const k of ["revenueForecast", "openingStock", "closingStock"]) {
+      if (!(k in (req.body || {}))) continue;
+      const v = req.body[k];
+      if (v === null || v === "") { cur[k] = null; continue; }
+      const n = Number(v);
+      if (!isFinite(n) || n < 0) return res.status(400).json({ error: `${k} must be a non-negative number.` });
+      cur[k] = n;
+    }
+    weeks[week] = cur;
+    await tenantStore.updateSettings(DASHBOARD_TENANT_ID, { weeks });
+    res.json({ ok: true, week, ...cur });
+  } catch (err) {
+    console.error("[weeks] failed to save:", err);
+    res.status(500).json({ error: "Failed to save the week's numbers." });
+  }
+});
+
+/**
  * GET /api/reports/pnl?week=YYYY-MM-DD — the weekly P&L summary: revenue,
  * actual labour (amended-aware), food purchases / COGS, and the three
  * percentages management steers by.
@@ -1451,13 +857,15 @@ app.get("/api/reports/pnl", requireDashboardKey, async (req, res) => {
     endD.setDate(endD.getDate() + 7);
     const weekEnd = endD.toISOString().slice(0, 10);
 
-    const [staff, venue, roster, shiftsRaw, purchasesAll] = await Promise.all([
+    const [staff, venue, shiftsRaw, purchasesAll] = await Promise.all([
       staffStore.listByTenant(DASHBOARD_TENANT_ID),
       tenantStore.findById(DASHBOARD_TENANT_ID),
-      rosterStore.getWeek(DASHBOARD_TENANT_ID, week),
       shiftsStore.listRecentByTenant(DASHBOARD_TENANT_ID, week),
       purchasesStore.listByTenant(DASHBOARD_TENANT_ID),
     ]);
+    // Revenue forecast and stocktake for the week, entered on the dashboard's
+    // "Numbers" panel (POST /api/weeks/:week). Lives on the tenant doc.
+    const roster = (venue && venue.weeks && venue.weeks[week]) || {};
     const rules = venue && venue.penaltyRules;
 
     let labour = 0;
@@ -1539,7 +947,7 @@ app.get("/foodsafety", (_req, res) => {
 app.use("/api/core", requireDashboardKey, coreOSRoutes({
   db: getFirestoreDb(),
   tenantId: DASHBOARD_TENANT_ID,
-  sendWhatsApp: (phone, text) => sendText(phone, text),
+  sendMessage: (phone, text) => sendText(phone, text),
 }));
 app.get("/roster", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "roster.html"));

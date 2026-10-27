@@ -13,7 +13,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const { InMemorySiteStore, normalizeGeofence, slugifySiteId } = require("../siteStore");
-const { InMemoryRosterStore, normalizeAssignment, normalizeAssignments } = require("../rosterStore");
+const { InMemoryRosterStore } = require("../rosterStore");
 const { InMemoryTenantStore } = require("../tenantStore");
 const { InMemoryShiftsStore } = require("../shiftsStore");
 const { resolveSiteForClockIn, candidateRosterDates } = require("../siteResolver");
@@ -82,67 +82,14 @@ test("sites are scoped by tenant and soft-deleted, never dropped", async () => {
 
 /* --------------------------------------------------------- roster normalizer */
 
-test("normalizeAssignment reads both the legacy and the site-carrying shape", () => {
-  assert.deepEqual(normalizeAssignment("AM"), { slot: "AM", siteId: null });
-  assert.deepEqual(normalizeAssignment("am"), { slot: "AM", siteId: null });
-  assert.deepEqual(normalizeAssignment({ slot: "PM", siteId: "hilton-sydney" }), {
-    slot: "PM",
-    siteId: "hilton-sydney",
-  });
-  // Custom shift times painted from the dashboard's editor survive untouched —
-  // dropping these would silently delete every non-preset shift on save.
-  assert.deepEqual(normalizeAssignment("09:00-17:00"), { slot: "09:00-17:00", siteId: null });
-  assert.deepEqual(normalizeAssignment({ slot: "18:00-02:00", siteId: "manly-pacific" }), {
-    slot: "18:00-02:00",
-    siteId: "manly-pacific",
-  });
-
-  assert.equal(normalizeAssignment(""), null);
-  assert.equal(normalizeAssignment("BRUNCH"), null);
-  assert.equal(normalizeAssignment({ siteId: "hilton-sydney" }), null);
-});
-
-test("normalizeAssignments strips a siteId the tenant doesn't own", () => {
-  const known = (siteId) => siteId === "hilton-sydney";
-  const clean = normalizeAssignments(
-    {
-      "2026-08-10": {
-        "61400000001": { slot: "AM", siteId: "hilton-sydney" },
-        "61400000002": { slot: "PM", siteId: "some-other-agencys-site" },
-        "61400000003": "nonsense",
-      },
-      "not-a-date": { "61400000001": "AM" },
-      "2026-08-11": { "61400000001": "" },
-    },
-    known
-  );
-
-  assert.deepEqual(clean, {
-    "2026-08-10": {
-      // A dangling siteId becomes a geofence that can never match, so it is
-      // dropped to null rather than stored — the shift falls back to
-      // resolution instead of flagging someone who is exactly where they were
-      // told to be.
-      "61400000001": { slot: "AM", siteId: "hilton-sydney" },
-      "61400000002": { slot: "PM", siteId: null },
-    },
-  });
-});
-
-/* ------------------------------------------------------------ site resolution */
-
 test("the rostered site wins, and two people can be measured against two buildings", async () => {
   const deps = agencyStores();
   deps.siteStore.upsert("hilton-sydney", { tenantId: "agency", name: "Hilton Sydney", geofence: HILTON });
   deps.siteStore.upsert("manly-pacific", { tenantId: "agency", name: "Manly Pacific", geofence: MANLY });
 
   const at = new Date("2026-08-10T09:00:00");
-  await deps.rosterStore.saveWeek("agency", "2026-08-10", {
-    "2026-08-10": {
-      "61400000001": { slot: "AM", siteId: "hilton-sydney" },
-      "61400000002": { slot: "AM", siteId: "manly-pacific" },
-    },
-  });
+  await deps.rosterStore.addShift({ tenantId: "agency", workerId: "61400000001", date: "2026-08-10", start: "09:00", end: "17:00", siteId: "hilton-sydney", published: true });
+  await deps.rosterStore.addShift({ tenantId: "agency", workerId: "61400000002", date: "2026-08-10", start: "09:00", end: "17:00", siteId: "manly-pacific", published: true });
 
   const maria = await resolveSiteForClockIn({ staff: agencyStaff, at, deps });
   assert.equal(maria.source, "roster");
@@ -222,9 +169,7 @@ test("an explicit siteId short-circuits, so both ends of a shift use one buildin
   const deps = agencyStores();
   deps.siteStore.upsert("hilton-sydney", { tenantId: "agency", name: "Hilton Sydney", geofence: HILTON });
   deps.siteStore.upsert("manly-pacific", { tenantId: "agency", name: "Manly Pacific", geofence: MANLY });
-  await deps.rosterStore.saveWeek("agency", "2026-08-10", {
-    "2026-08-10": { "61400000001": { slot: "AM", siteId: "manly-pacific" } },
-  });
+  await deps.rosterStore.addShift({ tenantId: "agency", workerId: "61400000001", date: "2026-08-10", start: "09:00", end: "17:00", siteId: "manly-pacific", published: true });
 
   // Clocked in at the Hilton yesterday; the roster now says Manly. Clock-out
   // must still measure against the Hilton.
@@ -255,9 +200,7 @@ test("a rostered site keeps working after it's deactivated mid-week", async () =
   const deps = agencyStores();
   deps.siteStore.upsert("hilton-sydney", { tenantId: "agency", name: "Hilton Sydney", geofence: HILTON });
   deps.siteStore.upsert("manly-pacific", { tenantId: "agency", name: "Manly Pacific", geofence: MANLY });
-  await deps.rosterStore.saveWeek("agency", "2026-08-10", {
-    "2026-08-10": { "61400000001": { slot: "AM", siteId: "manly-pacific" } },
-  });
+  await deps.rosterStore.addShift({ tenantId: "agency", workerId: "61400000001", date: "2026-08-10", start: "09:00", end: "17:00", siteId: "manly-pacific", published: true });
   await deps.siteStore.setActive("manly-pacific", false);
 
   // The person was still sent to Manly. Falling through to "only one active
@@ -286,9 +229,7 @@ test("the night-shift lookback resolves the site rostered the day before", async
   const deps = agencyStores();
   deps.siteStore.upsert("hilton-sydney", { tenantId: "agency", name: "Hilton Sydney", geofence: HILTON });
   deps.siteStore.upsert("manly-pacific", { tenantId: "agency", name: "Manly Pacific", geofence: MANLY });
-  await deps.rosterStore.saveWeek("agency", "2026-08-10", {
-    "2026-08-10": { "61400000001": { slot: "22:00-06:00", siteId: "manly-pacific" } },
-  });
+  await deps.rosterStore.addShift({ tenantId: "agency", workerId: "61400000001", date: "2026-08-10", start: "22:00", end: "06:00", siteId: "manly-pacific", published: true });
 
   const resolution = await resolveSiteForClockIn({
     staff: agencyStaff,

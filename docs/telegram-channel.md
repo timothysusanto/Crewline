@@ -28,9 +28,17 @@ fallback if its env vars are set.
   linked chat and go to Telegram; if they aren't linked, WhatsApp is used only when configured.
 - `POST /webhook/telegram` is authenticated by the secret token (`X-Telegram-Bot-Api-Secret-Token`),
   acknowledges immediately, then processes. Private chats only; groups are ignored.
-- Commands are unchanged (`in`, `out`, `break`, `back`, `roster`, `wallet`, `temps`, …).
-  Typing them with a slash also works (`/in`). Location and photos use Telegram's native
-  share-location button and photo upload.
+- Commands: `in`, `out`, `break`, `back`, `roster`, `yes` / `swap` (answering a published
+  roster), `avail`, `wallet`, `temps`, `clean`, `delivery`, `train`, `spend`. Typing them with a
+  slash also works (`/in`). Location and photos use Telegram's native share-location button
+  and photo upload.
+- **One people list.** The roster page's crew list and the bot's staff list are the same
+  Firestore records (`staff/{phone}`). Add someone once, on the Roster page, with the mobile
+  number they use on Telegram; that number is how they're matched when they message the bot.
+- **Roster → Telegram.** Publishing on the Roster page sends each person their week. `YES`
+  marks the shifts confirmed; `SWAP` (optionally with a note) flags them on the roster and
+  messages every manager/owner who has linked Telegram. Anyone who hasn't messaged the bot yet
+  is listed as "not yet reachable" on publish.
 
 ## The one real limitation
 
@@ -39,7 +47,8 @@ their number, nothing can be sent to them — no shift offers, no roster pushes.
 (everyone sends the bot one message) is the critical path, not the technical setup. The
 dispatcher logs `[channel] no way to reach …` for anyone not yet linked.
 
-## Not covered yet
+## Firestore quota
 
-Hotel/client ordering (the `intakeHandler` flow) identifies requesters by phone number and is
-not linked to Telegram yet — clients still need WhatsApp, or a Telegram link flow for requesters.
+Deploy `firestore.indexes.json` (`npx firebase-tools deploy --only firestore:indexes`) or the
+dashboard reads the whole attendance collection on every load, which is what used up the free
+tier. The staffing-request engine that polled Firestore every 30 seconds has been removed.

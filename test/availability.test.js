@@ -19,17 +19,13 @@ const {
   InMemoryAvailabilityStore, stateFor, stateForShift, isSubmitted,
   declaredCellCount, STATES,
 } = require("../availabilityStore");
-const { InMemoryFreeTodayStore, isLive, expiryFor, minutesRemaining } = require("../freeTodayStore");
 const { InMemoryStaffStore } = require("../store");
 const { InMemorySiteStore } = require("../siteStore");
 const { InMemoryRosterStore } = require("../rosterStore");
 const { InMemoryShiftsStore } = require("../shiftsStore");
 const { InMemoryTenantStore } = require("../tenantStore");
-const { InMemoryRequestsStore } = require("../requestsStore");
-const { InMemoryOffersStore } = require("../offersStore");
-const { audienceFor, advance } = require("../dispatch");
 const {
-  sweepWeeklyPings, handleSameAgain, handleNotAvailable, handleFreeToday,
+  sweepWeeklyPings, handleSameAgain, handleNotAvailable,
   handleShorthand, nextWeekStart, buildPing, gridModel, looksLikeAvailabilityReply,
 } = require("../availabilityCapture");
 const signedLinks = require("../signedLinks");
@@ -63,10 +59,7 @@ function buildDeps() {
     staffStore: new InMemoryStaffStore(),
     siteStore,
     tenantStore: new InMemoryTenantStore(),
-    requestsStore: new InMemoryRequestsStore(),
-    offersStore: new InMemoryOffersStore(),
     availabilityStore: new InMemoryAvailabilityStore(),
-    freeTodayStore: new InMemoryFreeTodayStore(),
     rosterStore: new InMemoryRosterStore(),
     shiftsStore: new InMemoryShiftsStore(),
   };
@@ -230,145 +223,6 @@ test("last week's answer is never reused as this week's", async () => {
 
 /* ------------------------------------------------------- the wave tiers */
 
-test("wave 1 reaches the available, wave 2 reaches only the unknown", async () => {
-  const deps = buildDeps();
-  const yes = addStaff(deps, "614001", "Says yes");
-  const no = addStaff(deps, "614002", "Says no");
-  const silent = addStaff(deps, "614003", "Never replies");
-
-  const startsAt = new Date("2026-08-12T07:00:00");
-  const weekStart = weekStartOf(startsAt);
-  await deps.availabilityStore.submit("agency", yes.phone, weekStart, { "2026-08-12": ["AM"] }, "grid");
-  await deps.availabilityStore.submitNone("agency", no.phone, weekStart, "grid");
-  // `silent` is deliberately never submitted.
-
-  const request = {
-    tenantId: "agency", siteId: "hilton-sydney", role: "housekeeping",
-    startsAt: startsAt.toISOString(), endsAt: new Date(startsAt.getTime() + 8 * HOURS).toISOString(),
-  };
-
-  const available = await audienceFor("available", request, deps);
-  assert.deepEqual(available.map((s) => s.phone), [yes.phone]);
-
-  const unknown = await audienceFor("unknown", request, deps);
-  // Somebody who told us no has answered. Blasting them again is how a pool
-  // learns to ignore the messages.
-  assert.deepEqual(unknown.map((s) => s.phone), [silent.phone]);
-
-  // Only the urgent lane's last wave overrides that, and it says so.
-  const all = await audienceFor("all", request, deps);
-  assert.equal(all.length, 3);
-});
-
-test("with no availability store at all, unknown is the whole pool", async () => {
-  const deps = buildDeps();
-  addStaff(deps, "614001", "A");
-  addStaff(deps, "614002", "B");
-  delete deps.availabilityStore;
-
-  const request = {
-    tenantId: "agency", siteId: "hilton-sydney", role: "housekeeping",
-    startsAt: "2026-08-12T07:00:00", endsAt: "2026-08-12T15:00:00",
-  };
-  // Nobody has answered anything, so unknown is everyone — which is right.
-  assert.equal((await audienceFor("unknown", request, deps)).length, 2);
-  // And `available` cannot be determined, so the wave is skipped, not empty.
-  assert.equal(await audienceFor("available", request, deps), null);
-});
-
-test("a planned blast now starts with the people who said yes", async () => {
-  const deps = buildDeps();
-  const yes = addStaff(deps, "614001", "Says yes");
-  addStaff(deps, "614002", "Never replies");
-  const msg = captureMessages();
-  try {
-    const now = new Date("2026-08-10T09:00:00");
-    const startsAt = new Date("2026-08-12T07:00:00");
-    await deps.availabilityStore.submit(
-      "agency", yes.phone, weekStartOf(startsAt), { "2026-08-12": ["AM"] }, "grid"
-    );
-
-    const request = await deps.requestsStore.create({
-      tenantId: "agency", siteId: "hilton-sydney", siteName: "Hilton Sydney",
-      role: "housekeeping", startsAt: startsAt.toISOString(),
-      endsAt: new Date(startsAt.getTime() + 8 * HOURS).toISOString(),
-      headcount: 1, now: now.toISOString(),
-    });
-    await advance(request, deps, {}, now);
-
-    const after = await deps.requestsStore.findById(request.requestId);
-    // Wave 1 now has a data source, so it no longer falls through to wave 2.
-    assert.equal(after.wave, 1);
-    const offers = await deps.offersStore.listByRequest(request.requestId);
-    assert.deepEqual(offers.map((o) => o.phone), [yes.phone]);
-  } finally {
-    msg.restore();
-  }
-});
-
-/* ------------------------------------------------------ the free-today pool */
-
-test("the free-today pool is opt-in and expires on its own", async () => {
-  const store = new InMemoryFreeTodayStore();
-  const morning = new Date("2026-08-12T06:30:00");
-
-  const doc = await store.declare("agency", "614001", morning);
-  assert.ok(isLive(doc, morning));
-  assert.ok(minutesRemaining(doc, morning) > 600);
-
-  // Six hours later, still a hot lead.
-  assert.ok(await store.find("agency", "614001", new Date("2026-08-12T12:30:00")));
-
-  // Next morning, gone — with no sweep having run. Expiry is a comparison at
-  // read time, so a job that never runs cannot leave stale data behind.
-  assert.equal(await store.find("agency", "614001", new Date("2026-08-13T06:30:00")), null);
-  assert.equal((await store.listLive("agency", new Date("2026-08-13T06:30:00"))).length, 0);
-});
-
-test("declaring at night does not quietly mean free tomorrow", async () => {
-  // Twelve hours from 9pm would run to 9am the next day.
-  const late = new Date("2026-08-12T21:00:00");
-  const expires = new Date(expiryFor(late));
-  assert.equal(expires.getDate(), 12, "it must not spill into the next day");
-  assert.equal(expires.getHours(), 23);
-});
-
-test("re-tapping extends the window but keeps the original tap time", async () => {
-  const store = new InMemoryFreeTodayStore();
-  const first = new Date("2026-08-12T06:00:00");
-  const declared = await store.declare("agency", "614001", first);
-
-  const again = await store.declare("agency", "614001", new Date("2026-08-12T12:00:00"));
-  // The by-hour report is about when people first opted in.
-  assert.equal(again.declaredAt, declared.declaredAt);
-  assert.ok(new Date(again.expiresAt) > new Date(declared.expiresAt));
-});
-
-test("free-today only counts for shifts starting today", async () => {
-  const deps = buildDeps();
-  const keen = addStaff(deps, "614001", "Keen");
-  const now = new Date("2026-08-12T06:00:00");
-  await deps.freeTodayStore.declare("agency", keen.phone, now);
-
-  const today = {
-    tenantId: "agency", role: "housekeeping",
-    startsAt: new Date("2026-08-12T14:00:00").toISOString(),
-    endsAt: new Date("2026-08-12T22:00:00").toISOString(),
-  };
-  const tomorrow = {
-    tenantId: "agency", role: "housekeeping",
-    startsAt: new Date("2026-08-13T14:00:00").toISOString(),
-    endsAt: new Date("2026-08-13T22:00:00").toISOString(),
-  };
-
-  assert.equal((await deps.freeTodayStore.filterFreeToday([keen], today, now)).length, 1);
-  // "Free today" says nothing about tomorrow, and treating it as if it did would
-  // put the weakest signal in front of the strongest.
-  assert.equal((await deps.freeTodayStore.filterFreeToday([keen], tomorrow, now)).length, 0);
-});
-
-/* ------------------------------------------------------- the capture ladder */
-
 test("\"same\" repeats last week in one word", async () => {
   const deps = buildDeps();
   const staff = addStaff(deps, "614001", "Maria");
@@ -458,22 +312,8 @@ test("shorthand declines a message it cannot parse rather than guessing", async 
   }
 });
 
-test("\"today\" joins the pool and says when it lapses", async () => {
-  const deps = buildDeps();
-  const staff = addStaff(deps, "614001", "Maria");
-  const msg = captureMessages();
-  try {
-    await handleFreeToday(staff.phone, staff, deps, {}, new Date("2026-08-12T06:30:00"));
-    assert.match(msg.lastTo(staff.phone).body, /in the pool for today until/);
-    assert.match(msg.lastTo(staff.phone).body, /first refusal/);
-    assert.equal((await deps.freeTodayStore.listLive("agency", new Date("2026-08-12T09:00:00"))).length, 1);
-  } finally {
-    msg.restore();
-  }
-});
-
 test("the availability words don't shadow the other commands", () => {
-  for (const word of ["same", "same again", "none", "today", "free today"]) {
+  for (const word of ["same", "same again", "none"]) {
     assert.ok(looksLikeAvailabilityReply(word), `"${word}" should be an availability word`);
   }
   for (const other of ["in", "out", "break", "back", "roster", "yes", "no", "spend 420"]) {

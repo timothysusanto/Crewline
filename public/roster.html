@@ -163,7 +163,7 @@
   .alert.expiring .exp{color:var(--amber);font-weight:600}
   .alerts .empty{color:var(--ink-2);font-size:14px}
 
-  /* Live attendance strip — bridges the WhatsApp clock-in system */
+  /* Live attendance strip — the Telegram clock-in system */
   .live-strip{margin:0 0 18px}
   .live-strip h3{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .live-pill{font-family:var(--font-docket);font-size:12px;letter-spacing:0;text-transform:none;background:var(--green-bg);color:var(--green);border-radius:99px;padding:2px 10px;font-weight:600}
@@ -320,8 +320,11 @@
     <div class="mhead"><h3 id="workerModalTitle">Add crew member</h3></div>
     <div class="mbody">
       <div class="field"><label for="wName">Name</label><input id="wName" type="text" required></div>
-      <div class="field"><label for="wPhone">WhatsApp number</label>
-        <input id="wPhone" type="tel" inputmode="tel" placeholder="614XXXXXXXX — international, no +">
+      <div class="field"><label for="wPhone">Mobile number (the one they use on Telegram)</label>
+        <input id="wPhone" type="tel" inputmode="tel" required placeholder="614XXXXXXXX — international, no +">
+      </div>
+      <div class="field"><label for="wRole">Access</label>
+        <select id="wRole"><option value="staff">Staff</option><option value="manager">Manager — gets swap requests, can open the dashboard</option><option value="owner">Owner</option></select>
       </div>
       <div class="trow" style="grid-template-columns:1fr 1fr">
         <div class="field"><label for="wType">Employment</label>
@@ -353,7 +356,7 @@
       <div class="field"><label for="cNumber">Number (optional)</label>
         <input id="cNumber" type="text" inputmode="text" placeholder="Card / licence no."></div>
     </form>
-    <p style="font-size:13px;color:var(--ink-2);margin-top:10px">Workers can also file these themselves — they just send a photo of the card to the venue WhatsApp.</p>
+    <p style="font-size:13px;color:var(--ink-2);margin-top:10px">Crew can also file these themselves — they just send a photo of the card to the Telegram bot.</p>
   </div>
   <div class="mfoot">
     <button type="button" class="btn-ghost" id="walletEditWorker" style="margin-right:auto">Edit details</button>
@@ -541,11 +544,11 @@ function renderGapRows(gaps){
 }
 document.getElementById("gapList").addEventListener("click",async e=>{
   const b=e.target.closest("[data-enrol]"); if(!b) return;
-  if(DEMO){ toast("Demo: enrol link would be sent on WhatsApp"); return; }
+  if(DEMO){ toast("Demo: enrol link would be sent on Telegram"); return; }
   b.disabled=true;
   const r=await fetch(api("/send-enrol"),{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({workerId:b.dataset.worker,courseId:b.dataset.enrol})});
-  toast(r.ok?"Enrol link sent on WhatsApp":"Send failed — check the worker has a number"); b.disabled=false;
+  toast(r.ok?"Enrol link sent on Telegram":"Send failed — check the worker has a number"); b.disabled=false;
 });
 
 function renderAlerts(alerts){
@@ -586,7 +589,7 @@ document.getElementById("bodyRows").addEventListener("keydown",e=>{
 function openModal(workerId,date){
   pendingCell={workerId,date};
   const sel=document.getElementById("fWorker");
-  sel.innerHTML=workers.map(w=>`<option value="${w.id}" ${w.id===workerId?"selected":""}>${esc(w.name)} (${w.level})</option>`).join("");
+  sel.innerHTML=workers.map(w=>`<option value="${w.id}" ${w.id===workerId?"selected":""}>${esc(w.name)} (${w.level||"—"})</option>`).join("");
   document.getElementById("modalTitle").textContent="Add shift — "+fmt(date);
   document.getElementById("guardNote").className="guardnote";
   document.getElementById("shiftModal").showModal();
@@ -630,7 +633,7 @@ document.getElementById("publishBtn").onclick=async()=>{
   const res=await fetch(api(`/roster/publish`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weekStart})});
   const j=await res.json();
   await load();
-  toast(res.ok?`Roster published — ${j.workersNotified}/${j.workersOnRoster} notified on WhatsApp`:"Publish failed: "+j.error);
+  toast(res.ok?`Roster published — ${j.workersNotified}/${j.workersOnRoster} sent on Telegram${j.unreachable&&j.unreachable.length?`. Not yet reachable (they need to message the bot once): ${j.unreachable.join(", ")}`:""}`:"Publish failed: "+j.error);
 };
 
 document.getElementById("prevWeek").onclick=()=>{weekStart=addDays(weekStart,-7);load();};
@@ -662,7 +665,8 @@ function openWorkerModal(w){
   document.getElementById("workerModalTitle").textContent=w?("Edit — "+w.name):"Add crew member";
   document.getElementById("wName").value=w?w.name:"";
   document.getElementById("wPhone").value=w&&w.phone?w.phone:"";
-  document.getElementById("wType").value=w?w.employmentType:"casual";
+  document.getElementById("wType").value=w?(w.employmentType||"casual"):"casual";
+  document.getElementById("wRole").value=w?(w.role||"staff"):"staff";
   fillAwardSelects(w?(w.awardCode||"MA000009"):"MA000009", w?w.level:undefined);
   document.getElementById("workerDeactivate").style.display=w?"inline-block":"none";
   document.getElementById("workerNote").className="guardnote";
@@ -677,6 +681,7 @@ document.getElementById("workerForm").addEventListener("submit",async e=>{
   const body={
     name:document.getElementById("wName").value.trim(),
     phone:document.getElementById("wPhone").value.replace(/[^0-9]/g,"")||null,
+    role:document.getElementById("wRole").value,
     employmentType:document.getElementById("wType").value,
     awardCode:document.getElementById("wAward").value,
     level:document.getElementById("wLevel").value,
@@ -686,6 +691,7 @@ document.getElementById("workerForm").addEventListener("submit",async e=>{
     else workers.push({id:"w"+Date.now(),...body,credentialStatus:"ok"});
     document.getElementById("workerModal").close(); render(); toast(editingWorker?"Crew member updated (demo)":"Crew member added (demo)"); return;
   }
+  if(editingWorker) delete body.phone; // the number is the record's key — add a new person instead of changing it
   const r = editingWorker
     ? await fetch(api(`/workers/${editingWorker.id}`),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
     : await fetch(api(`/workers`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
@@ -737,7 +743,7 @@ function renderCreds(creds){
       const st=!c.expiryDate?"":c.expiryDate<today?"expired":c.expiryDate<soon?"expiring":"";
       return `<div class="cred ${st}">
         <span>${esc(c.label||c.type)}${c.number?` · ${esc(c.number)}`:""}
-          <span class="src">${c.source==="whatsapp"?"filed by worker on WhatsApp":"added on dashboard"}</span></span>
+          <span class="src">${c.source==="whatsapp"||c.source==="telegram"?"filed by crew on chat":"added on dashboard"}</span></span>
         <span class="exp">${c.expiryDate?(st==="expired"?"expired ":"exp ")+fmt(c.expiryDate):"no expiry"}</span>
       </div>`;
     }).join("");
@@ -770,7 +776,7 @@ function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",
 function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3200);}
 
 /* ---------- Live attendance bridge ----------
-   The WhatsApp clock-in system (pre-existing) writes attendance events to the
+   The chat clock-in system writes attendance events to the
    top-level `shifts` collection and serves them via /api/dashboard. This
    page's planned roster lives in a *different* tenants/{id}/shifts collection
    under /api/core. Same word, two datasets — see handoff doc §5. This panel
@@ -825,7 +831,7 @@ async function liveReview(id,approve,btn){
 }
 
 load().finally(loadLive);
-setInterval(()=>{if(!document.hidden)loadLive();},30000);
+setInterval(()=>{if(!document.hidden)loadLive();},120000);
 </script>
 </body>
 </html>

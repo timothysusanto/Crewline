@@ -74,8 +74,8 @@ function todayIso() {
 }
 
 function rosterMariaTo(deps, siteId) {
-  return deps.rosterStore.saveWeek("agency", mondayOf(new Date()), {
-    [todayIso()]: { "61400000001": { slot: "AM", siteId } },
+  return deps.rosterStore.addShift({
+    tenantId: "agency", workerId: "61400000001", date: todayIso(), start: "00:00", end: "23:59", siteId, published: true,
   });
 }
 

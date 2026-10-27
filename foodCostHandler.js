@@ -49,7 +49,7 @@ async function handleSpendCommand(from, staff, body, deps, sendOpts) {
     date: today,
     amount,
     supplier,
-    source: "whatsapp",
+    source: sendOpts.channel || "whatsapp",
     loggedBy: from,
   });
 

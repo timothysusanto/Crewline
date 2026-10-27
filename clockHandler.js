@@ -3,8 +3,7 @@
 const { sendText, sendLocationRequest } = require("./whatsapp");
 const { checkGeofence } = require("./geofence");
 const { resolveSiteForClockIn, describeResolutionFailure, resolutionLabel } = require("./siteResolver");
-const { slotWindow } = require("./rosterStore");
-const { billRateFor } = require("./margin");
+const { shiftWindow } = require("./rosterStore");
 
 /** Grace before a clock-in counts as late against the rostered start. */
 const LATE_AFTER_MS = 5 * 60 * 1000;
@@ -19,17 +18,16 @@ const LATE_AFTER_MS = 5 * 60 * 1000;
  * Breaks don't need a location share (staff is already on-site) — "break"
  * and "back" act immediately on the text message alone.
  *
- * The geofence comes from the **site** on the assigned shift, resolved by
- * siteResolver.js — not from the tenant. That is the point of build order
- * step 1 in docs/agencymodelshape.md: an agency sends one staff pool to
- * fifteen buildings, so a tenant-level radius would flag fourteen of them.
+ * The geofence comes from the **site** on the rostered shift, resolved by
+ * siteResolver.js — a venue with one site never has to think about this;
+ * a group with several gets the right building automatically.
  * Clock-in resolves the site and stamps it on the shift; clock-out re-checks
  * against that same stamped site, so the two ends of a shift can never be
  * measured against different buildings.
  *
- * Every function here takes a `sendOpts` param, forwarded straight to
- * whatsapp.js — {} in a single-venue deployment (falls back to env vars),
- * or {phoneNumberId, token} once a venue has its own WhatsApp number.
+ * Every function here takes a `sendOpts` param, forwarded straight to the
+ * channel dispatcher (whatsapp.js) so replies land on the channel the
+ * message came from — Telegram, normally.
  */
 
 async function requestClockAction(from, action, deps, sendOpts = {}) {
@@ -84,9 +82,8 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
     return;
   }
 
-  // Price the shift now, from the rate card that applies today. Stamped rather
-  // than looked up later so an invoice can't silently reprice — see margin.js.
-  const pricing = await priceShift(from, staff, site, deps);
+  // Stamp the role and pay rate now, so payroll never reprices a shift later.
+  const pricing = await priceShift(from, staff, deps);
 
   const { shiftId } = await shiftsStore.openShift({
     tenantId: staff.tenantId,
@@ -96,7 +93,6 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
     siteName: site ? site.name : null,
     role: pricing.role,
     payRate: pricing.payRate,
-    billRate: pricing.billRate,
     clockIn: {
       time: new Date().toISOString(),
       lat: reported.lat,
@@ -106,84 +102,60 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
       siteSource: resolution.source,
     },
   });
-  await recordShowedUp(from, staff, deps);
+  const lateNote = await lateBy(from, staff, deps);
   await sendText(
     from,
-    `Clocked in at ${siteLabel}, ${staff.name} — have a good shift! (${shiftId})`,
+    `Clocked in at ${siteLabel}, ${staff.name} — have a good shift!${lateNote} (${shiftId})`,
     sendOpts
   );
 }
 
 /**
- * The role and the two rates for a shift about to be opened.
- *
- * The role comes from the rostered assignment when there is one, because that is
- * what the shift was actually sold as. Falling back to the person's own roles is
- * a guess, so it's only used when nothing better exists — and a missing bill rate
- * is left null rather than defaulted to zero, which would make an unpriced shift
- * look like a loss-making one in the margin report.
+ * The role and pay rate for a shift about to be opened. The role comes from the
+ * rostered shift when there is one (that's what the person was rostered as);
+ * otherwise their own first role or department.
  */
-async function priceShift(from, staff, site, deps) {
+async function priceShift(from, staff, deps) {
   const { rosterStore } = deps;
   let role = null;
-
   try {
     if (rosterStore && rosterStore.findAssignment) {
-      const now = new Date();
-      const dateIso =
-        `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` +
-        `-${String(now.getDate()).padStart(2, "0")}`;
-      const assignment = await rosterStore.findAssignment(staff.tenantId, dateIso, from);
+      const assignment = await rosterStore.findAssignment(staff.tenantId, localDateIso(), from);
       if (assignment && assignment.role) role = assignment.role;
     }
   } catch (err) {
-    console.error("[clock] couldn't read the assignment's role:", err.message);
+    console.error("[clock] couldn't read the rostered role:", err.message);
   }
-
   if (!role) {
     const own = Array.isArray(staff.roles) && staff.roles.length ? staff.roles[0] : staff.department;
     role = own ? String(own).trim().toLowerCase() : null;
   }
-
   const payRate = Number.isFinite(Number(staff.wageRate)) ? Number(staff.wageRate) : null;
-  const billRate = site ? billRateFor(site, role) : null;
-  if (site && billRate == null) {
-    console.warn(
-      `[margin] ${site.siteId} has no bill rate for "${role || "unknown role"}" — ` +
-        "this shift will show as unbillable until a rate card is set"
-    );
-  }
-  return { role, payRate, billRate };
+  return { role, payRate };
 }
 
 /**
- * Turning up is the other half of reliability — the half the blast engine ranks
- * wave 1 of the planned lane on. Lateness is measured against the rostered
- * start, so it only counts against someone who had a roster entry to be late
- * for; an unrostered clock-in is recorded as showing up, on time by default.
- *
- * Best-effort: a reliability write must never cost somebody their clock-in.
+ * " — 12 min after your rostered start" when the person is late against a
+ * published shift today; empty otherwise. Best-effort: never costs a clock-in.
  */
-async function recordShowedUp(from, staff, deps) {
-  const { staffStore, rosterStore } = deps;
-  if (!staffStore || !staffStore.recordShiftResult) return;
+async function lateBy(from, staff, deps) {
+  const { rosterStore } = deps;
   try {
-    const now = new Date();
-    const dateIso =
-      `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` +
-      `-${String(now.getDate()).padStart(2, "0")}`;
-
-    let late = false;
-    if (rosterStore && rosterStore.findAssignment) {
-      const assignment = await rosterStore.findAssignment(staff.tenantId, dateIso, from);
-      const window = assignment ? slotWindow(assignment.slot, dateIso) : null;
-      if (window) late = now.getTime() > window.startsAt.getTime() + LATE_AFTER_MS;
-    }
-
-    await staffStore.recordShiftResult(from, { showed: true, late });
+    if (!rosterStore || !rosterStore.findAssignment) return "";
+    const assignment = await rosterStore.findAssignment(staff.tenantId, localDateIso(), from);
+    if (!assignment) return "";
+    const { startsAt } = shiftWindow(assignment);
+    const lateMs = Date.now() - startsAt.getTime();
+    if (lateMs <= LATE_AFTER_MS) return "";
+    return ` — ${Math.round(lateMs / 60000)} min after your rostered ${assignment.start} start`;
   } catch (err) {
-    console.error("[clock] failed to record show-up:", err.message);
+    console.error("[clock] couldn't check lateness:", err.message);
+    return "";
   }
+}
+
+function localDateIso(now = new Date()) {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 async function clockOut(from, staff, reported, deps, sendOpts) {

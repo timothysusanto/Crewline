@@ -3,7 +3,8 @@
  * Deskless Workforce OS — mounts onto the existing Express app in one line (see WIRING.md).
  *
  * Firestore layout (extends the existing tenants/{tenant} structure):
- *   tenants/{t}/workers/{workerId}         { name, phone, employmentType, level, awardCode, active }
+ *   staff/{phone}                          { tenantId, name, role, employmentType, level, awardCode, active,
+ *                                            telegramChatId? } — the SAME list the bot uses; workerId == phone
  *   tenants/{t}/shifts/{shiftId}           { workerId, date, start, end, unpaidBreakMins, role,
  *                                            published, createdAt, updatedAt, audit: [...] }
  *   tenants/{t}/credentials/{credId}       { workerId, type, label, number, expiryDate,
@@ -12,7 +13,7 @@
  *
  * Wire-in:
  *   const coreOS = require("./core-os-routes");
- *   app.use("/api", coreOS({ db, tenantId: "demo-venue", sendWhatsApp })); // sendWhatsApp optional
+ *   app.use("/api", coreOS({ db, tenantId: "demo-venue", sendMessage })); // sendMessage optional
  */
 
 const express = require("express");
@@ -20,7 +21,7 @@ const { costShift, costRoster, getAward, listUnverifiedRates, listAwards } = req
 
 const { CREDENTIAL_TYPES } = require("./credentialTypes");
 
-module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
+module.exports = function coreOS({ db, tenantId, sendMessage }) {
   const router = express.Router();
 
   // Firestore not configured (in-memory dev mode) → fail clearly, don't crash.
@@ -33,6 +34,34 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
 
   const T = () => db.collection("tenants").doc(tenantId);
 
+  // Workers are the bot's staff list: top-level staff/{phone}, one record per
+  // person, filtered by tenant. This shim gives it the small Firestore-ish
+  // surface the routes below use, so the roster page, the wallet, payroll and
+  // the chat bot all read one list. workerId is the phone number.
+  const staffCol = db.collection("staff");
+  const asDoc = (d) => ({ id: d.id, exists: d.exists, data: () => ({ phone: d.id, ...d.data() }) });
+  const W = () => ({
+    where: () => W(),
+    async get() {
+      const snap = await staffCol.where("tenantId", "==", tenantId).get();
+      return { docs: snap.docs.map(asDoc) };
+    },
+    doc: (id) => ({
+      async get() {
+        const d = await staffCol.doc(String(id)).get();
+        return d.exists && d.data().tenantId === tenantId ? asDoc(d) : { id, exists: false, data: () => ({}) };
+      },
+      update: (patch) => staffCol.doc(String(id)).update(patch),
+    }),
+    async add(data) {
+      const phone = String(data.phone || "").replace(/\D/g, "");
+      if (!phone) throw new Error("PHONE_REQUIRED");
+      const { phone: _p, ...rest } = data;
+      await staffCol.doc(phone).set({ ...rest, tenantId, role: rest.role || "staff" }, { merge: true });
+      return { id: phone };
+    },
+  });
+
   const getHolidays = async () => {
     const s = await T().collection("settings").doc("publicHolidays").get();
     return s.exists ? s.data().dates || [] : [];
@@ -41,8 +70,8 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
   // ---------- Workers ----------
   router.get("/workers", async (req, res) => {
     try {
-      const snap = await T().collection("workers").where("active", "!=", false).get();
-      const workers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const snap = await W().get();
+      const workers = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((w) => w.active !== false);
       // Attach credential status summary to each worker
       const credsSnap = await T().collection("credentials").get();
       const creds = credsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -61,13 +90,15 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
 
   router.post("/workers", async (req, res) => {
     try {
-      const { name, phone, employmentType, level, awardCode } = req.body;
+      const { name, phone, employmentType, level, awardCode, role } = req.body;
       if (!name || !employmentType || !level) return res.status(400).json({ error: "name, employmentType and level are required" });
+      if (!String(phone || "").replace(/\D/g, "")) return res.status(400).json({ error: "phone is required — it's how the person is matched when they message the bot" });
+      if (role && !["owner", "manager", "staff"].includes(role)) return res.status(400).json({ error: 'role must be "owner", "manager", or "staff"' });
       if (!getAward(awardCode || "MA000009").levels[level]) {
         return res.status(400).json({ error: "Unknown classification level for that award" });
       }
-      const ref = await T().collection("workers").add({
-        name, phone: phone || null, employmentType, level,
+      const ref = await W().add({
+        name, phone, employmentType, level, role: role || "staff",
         awardCode: awardCode || "MA000009", active: true, createdAt: now(),
       });
       res.json({ id: ref.id });
@@ -76,10 +107,10 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
 
   router.put("/workers/:id", async (req, res) => {
     try {
-      const ref = T().collection("workers").doc(req.params.id);
+      const ref = W().doc(req.params.id);
       const doc = await ref.get();
       if (!doc.exists) return res.status(404).json({ error: "Worker not found" });
-      const allowed = ["name", "phone", "employmentType", "level", "awardCode", "active"];
+      const allowed = ["name", "employmentType", "level", "awardCode", "active", "role", "department", "wageRate"];
       const patch = {};
       for (const k of allowed) if (req.body[k] !== undefined) patch[k] = req.body[k];
       if (!Object.keys(patch).length) return res.status(400).json({ error: `Nothing to update. Allowed: ${allowed.join(", ")}` });
@@ -105,7 +136,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       const weekEnd = addDays(weekStart, 6);
       const [shiftSnap, workerSnap, holidays] = await Promise.all([
         T().collection("shifts").where("date", ">=", weekStart).where("date", "<=", weekEnd).get(),
-        T().collection("workers").get(),
+        W().get(),
         getHolidays(),
       ]);
       const shifts = shiftSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -121,7 +152,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
     try {
       const { workerId, date, start, end, unpaidBreakMins, role } = req.body;
       if (!workerId || !date || !start || !end) return res.status(400).json({ error: "workerId, date, start and end are required" });
-      const wDoc = await T().collection("workers").doc(workerId).get();
+      const wDoc = await W().doc(workerId).get();
       if (!wDoc.exists) return res.status(404).json({ error: "Worker not found" });
       const worker = wDoc.data();
 
@@ -172,7 +203,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       if (!weekStart) return res.status(400).json({ error: "weekStart is required" });
       const weekEnd = addDays(weekStart, 6);
       const snap = await T().collection("shifts").where("date", ">=", weekStart).where("date", "<=", weekEnd).get();
-      const workerSnap = await T().collection("workers").get();
+      const workerSnap = await W().get();
       const workersById = {};
       workerSnap.docs.forEach((d) => (workersById[d.id] = { id: d.id, ...d.data() }));
 
@@ -183,25 +214,30 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       });
 
       let sent = 0;
+      const unreachable = [];
       for (const [workerId, shifts] of Object.entries(byWorker)) {
         const w = workersById[workerId];
-        await Promise.all(shifts.map((s) => T().collection("shifts").doc(s.id).update({ published: true, updatedAt: now() })));
-        if (sendWhatsApp && w && w.phone) {
+        await Promise.all(shifts.map((s) => T().collection("shifts").doc(s.id).update({ published: true, updatedAt: now(), confirmedAt: null, swapRequestedAt: null })));
+        if (sendMessage && w && w.phone) {
           const lines = shifts
             .sort((a, b) => a.date.localeCompare(b.date))
             .map((s) => `• ${fmtDay(s.date)} ${s.start}–${s.end}${s.role ? " (" + s.role + ")" : ""}`);
-          await sendWhatsApp(w.phone, `📋 Your roster ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}\n\nReply YES to confirm or SWAP if you need a change.`);
-          sent++;
+          const r = await sendMessage(w.phone, `📋 Your roster ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}\n\nReply YES to confirm or SWAP if you need a change.`);
+          // The dispatcher returns { ok:false, reason:"no_channel" } for someone
+          // who has never messaged the bot — they can't be reached yet.
+          if (r && r.ok === false) unreachable.push(w.name || workerId); else sent++;
+        } else if (w) {
+          unreachable.push(w.name || workerId);
         }
       }
-      res.json({ ok: true, workersNotified: sent, workersOnRoster: Object.keys(byWorker).length });
+      res.json({ ok: true, workersNotified: sent, workersOnRoster: Object.keys(byWorker).length, unreachable });
     } catch (e) { err(res, e); }
   });
 
   // ---------- Credential wallet ----------
   router.get("/wallet/:workerId", async (req, res) => {
     try {
-      const wDoc = await T().collection("workers").doc(req.params.workerId).get();
+      const wDoc = await W().doc(req.params.workerId).get();
       const phone = wDoc.exists ? wDoc.data().phone : null;
       const [byId, byPhone] = await Promise.all([
         T().collection("credentials").where("workerId", "==", req.params.workerId).get(),
@@ -217,7 +253,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
     try {
       const { type, number, expiryDate, fileUrl } = req.body;
       if (!type || !CREDENTIAL_TYPES[type]) return res.status(400).json({ error: "Valid credential type is required", types: Object.keys(CREDENTIAL_TYPES) });
-      const wDoc = await T().collection("workers").doc(req.params.workerId).get();
+      const wDoc = await W().doc(req.params.workerId).get();
       const w = wDoc.exists ? wDoc.data() : {};
       const ref = await T().collection("credentials").add({
         workerId: req.params.workerId, workerPhone: w.phone || null, workerName: w.name || null,
@@ -235,7 +271,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       const today = new Date().toISOString().slice(0, 10);
       const horizon = addDays(today, 60);
       const [credSnap, workerSnap] = await Promise.all([
-        T().collection("credentials").get(), T().collection("workers").get(),
+        T().collection("credentials").get(), W().get(),
       ]);
       const names = {}, phoneNames = {};
       workerSnap.docs.forEach((d) => { const w = d.data(); names[d.id] = w.name; if (w.phone) phoneNames[w.phone] = w.name; });
@@ -263,7 +299,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       const required = tDoc.exists ? (tDoc.data().requiredCredentials || []) : [];
       const courses = await getCourses(tenantId);
       const [workerSnap, credSnap] = await Promise.all([
-        T().collection("workers").get(), T().collection("credentials").get(),
+        W().get(), T().collection("credentials").get(),
       ]);
       const creds = credSnap.docs.map((d) => d.data());
       const today = new Date().toISOString().slice(0, 10);
@@ -296,14 +332,14 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
     try {
       const { workerId, courseId } = req.body;
       if (!workerId || !courseId) return res.status(400).json({ error: "workerId and courseId are required" });
-      const wDoc = await T().collection("workers").doc(workerId).get();
-      if (!wDoc.exists || !wDoc.data().phone) return res.status(400).json({ error: "Worker has no WhatsApp number on file" });
+      const wDoc = await W().doc(workerId).get();
+      if (!wDoc.exists || !wDoc.data().phone) return res.status(400).json({ error: "Worker has no phone number on file" });
       const { getCourses } = require("./trainingHandler");
       const course = (await getCourses(tenantId)).find((c) => c.id === courseId);
       if (!course) return res.status(404).json({ error: "Course not found in catalog" });
-      if (!sendWhatsApp) return res.status(503).json({ error: "WhatsApp sending not configured" });
+      if (!sendMessage) return res.status(503).json({ error: "Messaging not configured" });
       const w = wDoc.data();
-      await sendWhatsApp(w.phone,
+      await sendMessage(w.phone,
         `🎓 Hi ${(w.name || "there").split(" ")[0]} — your manager has asked you to complete *${course.label}*.\n` +
         `${course.url}${course.note ? "\n⚠ " + course.note : ""}\n\n` +
         `When you finish, send me a photo of the certificate and it goes straight into your wallet.`);
@@ -348,7 +384,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       const weekEnd = addDays(weekStart, 6);
       const [shiftSnap, workerSnap, holidays] = await Promise.all([
         T().collection("shifts").where("date", ">=", weekStart).where("date", "<=", weekEnd).get(),
-        T().collection("workers").get(),
+        W().get(),
         getHolidays(),
       ]);
       const workersById = {};
@@ -380,7 +416,7 @@ module.exports = function coreOS({ db, tenantId, sendWhatsApp }) {
       const [shiftSnap, auditSnap, workerSnap] = await Promise.all([
         T().collection("shifts").where("date", ">=", from).where("date", "<=", to).get(),
         T().collection("shiftAudit").get(),
-        T().collection("workers").get(),
+        W().get(),
       ]);
       const names = {};
       workerSnap.docs.forEach((d) => (names[d.id] = d.data().name));

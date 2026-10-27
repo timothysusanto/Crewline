@@ -1,343 +1,197 @@
 "use strict";
 
 /**
- * Weekly rosters. One document per venue per week.
+ * The roster — one source of truth, shared by the manager roster page
+ * (core-os-routes.js writes it), the clock-in flow (which site, which role,
+ * was this person late) and the staff bot ("roster" command, YES/SWAP replies).
  *
- * Data model:
- *   rosters/{tenantId_weekStart} = {
- *     tenantId,
- *     weekStart: "YYYY-MM-DD" (a Monday),
- *     assignments: { "YYYY-MM-DD": { [staffPhone]: { slot, siteId } } },
- *     published: boolean,
- *     publishedAt: ISO string | null,
+ * Data model (Firestore):
+ *   tenants/{tenantId}/shifts/{shiftId}: {
+ *     workerId,        // the person's phone number — same key as staff/{phone}
+ *     date,            // YYYY-MM-DD
+ *     start, end,      // "HH:MM" local time; end may be <= start for an overnight shift
+ *     role?, siteId?, unpaidBreakMins?,
+ *     published,       // staff only see published shifts
+ *     confirmedAt?,    // set when the person replies YES to the published roster
+ *     swapRequestedAt? // set when they reply SWAP; the manager sees it on the roster page
  *   }
  *
- * Assignments are day-level slots, not timed shifts — deliberate v1
- * simplification matching how kitchens think in services (lunch/dinner).
- * Timed shifts and named service presets are a later step.
- *
- * An assignment carries the **site** it's for, because that is what makes the
- * geofence shift-level rather than tenant-level (docs/agencymodelshape.md,
- * build order step 1): a casual sent to the Hilton on Monday and the Sofitel
- * on Tuesday must be checked against two different buildings.
- *
- * Rosters written before sites existed store a bare slot string
- * (`"AM"` instead of `{slot: "AM", siteId: "hilton-sydney"}`). Every read goes
- * through normalizeAssignment(), so both shapes are legible forever and no
- * migration is required to keep an existing week working.
+ * The in-memory twin exists for tests and for running without Firestore.
  */
 
-const PRESET_SLOTS = ["AM", "PM", "ALL", "NIGHT"];
-/** Custom shift times painted from the dashboard's time editor, e.g. "09:00-17:00". */
-const CUSTOM_SLOT_RE = /^\d{2}:\d{2}-\d{2}:\d{2}$/;
+/** @typedef {{ id: string, tenantId: string, workerId: string, date: string, start: string, end: string, role?: string|null, siteId?: string|null, published?: boolean, confirmedAt?: string|null, swapRequestedAt?: string|null }} Shift */
 
-/**
- * Local clock hours each preset covers, from docs/agencymodelshape.md's three
- * blocks. NIGHT runs past midnight; a night belongs to the date it starts on.
- * ALL is the venue's trading day, not 24 hours.
- */
-const PRESET_HOURS = {
-  AM: [6, 14],
-  PM: [14, 22],
-  NIGHT: [22, 30], // 22:00 to 06:00 the next day
-  ALL: [6, 22],
-};
+function pad(n) {
+  return String(n).padStart(2, "0");
+}
 
-/**
- * The real time window a roster slot covers on a given date, so two shifts can
- * be tested for overlap. Returns Date objects in local time — the roster is
- * keyed in the venue's own days.
- * @param {string} slot @param {string} dateIso YYYY-MM-DD
- * @returns {{startsAt: Date, endsAt: Date}|null}
- */
-function slotWindow(slot, dateIso) {
-  const canonical = canonicalSlot(slot);
-  if (!canonical) return null;
-  const base = new Date(`${dateIso}T00:00:00`);
-  if (Number.isNaN(base.getTime())) return null;
+function localDateIso(date = new Date()) {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
 
-  let startHours;
-  let endHours;
-  const custom = canonical.match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
-  if (custom) {
-    startHours = Number(custom[1]) + Number(custom[2]) / 60;
-    endHours = Number(custom[3]) + Number(custom[4]) / 60;
-    if (endHours <= startHours) endHours += 24; // overnight, e.g. 18:00-02:00
-  } else {
-    [startHours, endHours] = PRESET_HOURS[canonical];
-  }
+/** Monday of the week containing `date`, as YYYY-MM-DD (local time). */
+function mondayOf(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay(); // 0 = Sunday
+  d.setDate(d.getDate() - ((day + 6) % 7));
+  return localDateIso(d);
+}
 
-  const startsAt = new Date(base.getTime() + startHours * 3600 * 1000);
-  const endsAt = new Date(base.getTime() + endHours * 3600 * 1000);
+function addDays(dateIso, n) {
+  const d = new Date(dateIso + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return localDateIso(d);
+}
+
+/** Local Date for "HH:MM" on a given day. */
+function atTime(dateIso, hhmm) {
+  const [h, m] = String(hhmm || "00:00").split(":").map(Number);
+  return new Date(`${dateIso}T${pad(h || 0)}:${pad(m || 0)}:00`);
+}
+
+/** When a shift starts and ends, as Dates — overnight shifts end the next day. */
+function shiftWindow(shift) {
+  const startsAt = atTime(shift.date, shift.start);
+  let endsAt = atTime(shift.date, shift.end);
+  if (endsAt <= startsAt) endsAt = new Date(endsAt.getTime() + 24 * 60 * 60 * 1000);
   return { startsAt, endsAt };
 }
 
-/** Do two [start, end) windows overlap at all? */
-function windowsOverlap(a, b) {
-  return a.startsAt < b.endsAt && b.startsAt < a.endsAt;
+function normalizeShift(id, tenantId, data) {
+  return {
+    id,
+    tenantId,
+    workerId: String(data.workerId || ""),
+    date: data.date,
+    start: data.start,
+    end: data.end,
+    role: data.role || null,
+    siteId: data.siteId || null,
+    unpaidBreakMins: data.unpaidBreakMins || 0,
+    published: data.published === true,
+    confirmedAt: data.confirmedAt || null,
+    swapRequestedAt: data.swapRequestedAt || null,
+  };
 }
 
-/**
- * @typedef {{slot: string, siteId: string|null}} Assignment
- *   `slot` is "AM" | "PM" | "ALL" | "HH:MM-HH:MM".
- */
-
-/** Presets are case-normalized; a custom range is already canonical. */
-function canonicalSlot(raw) {
-  const text = String(raw || "").trim();
-  if (CUSTOM_SLOT_RE.test(text)) return text;
-  const upper = text.toUpperCase();
-  return PRESET_SLOTS.includes(upper) ? upper : null;
-}
-
-/**
- * Reads either shape of stored assignment. Returns null for anything that
- * isn't an assignment at all (empty cell, unknown slot, junk) so callers can
- * treat "no shift" and "unreadable shift" the same way.
- * @param {any} raw @returns {Assignment|null}
- */
-function normalizeAssignment(raw) {
-  if (!raw) return null;
-  if (typeof raw === "string") {
-    const slot = canonicalSlot(raw);
-    return slot ? { slot, siteId: null } : null;
+/** Shared read-side helpers over a "list this tenant's shifts" primitive. */
+class BaseRosterStore {
+  /**
+   * The published shift this person has on a date (the earliest if several).
+   * Used by clock-in to find the site, the role and the rostered start.
+   */
+  async findAssignment(tenantId, dateIso, phone) {
+    const shifts = await this.listByWorker(tenantId, phone, dateIso, dateIso);
+    const published = shifts.filter((s) => s.published);
+    if (!published.length) return null;
+    published.sort((a, b) => (a.start || "").localeCompare(b.start || ""));
+    return published[0];
   }
-  if (typeof raw !== "object") return null;
-  const slot = canonicalSlot(raw.slot);
-  if (!slot) return null;
-  const assignment = { slot, siteId: raw.siteId ? String(raw.siteId) : null };
-  // The job being done, when it's known — set when an offer is accepted from a
-  // request that named a role. Clock-in reads it to pick the site's bill rate,
-  // so a shift can be priced without guessing from the person's department.
-  if (raw.role) assignment.role = String(raw.role).trim().toLowerCase();
-  return assignment;
-}
 
-/**
- * The write-side counterpart: takes whatever the dashboard sent for one cell
- * and returns the canonical stored shape, or null to clear the cell. Keeping
- * this strict matters more than usual — a typo'd siteId here becomes a
- * geofence that can never match, and the staff member gets flagged.
- * @param {any} raw @param {(siteId: string) => boolean} [isKnownSite]
- *   Optional guard; when supplied, an unrecognised siteId is dropped rather
- *   than stored, so a stale picker can't write a dangling reference.
- * @returns {Assignment|null}
- */
-function normalizeAssignmentForWrite(raw, isKnownSite) {
-  const assignment = normalizeAssignment(raw);
-  if (!assignment) return null;
-  if (assignment.siteId && isKnownSite && !isKnownSite(assignment.siteId)) {
-    return { slot: assignment.slot, siteId: null };
+  /** Published shifts from `fromDateIso` onwards, soonest first. */
+  async listUpcomingForWorker(tenantId, phone, fromDateIso = localDateIso(), days = 21) {
+    const shifts = await this.listByWorker(tenantId, phone, fromDateIso, addDays(fromDateIso, days));
+    return shifts
+      .filter((s) => s.published)
+      .sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
   }
-  return assignment;
 }
 
-/**
- * Cleans a whole week's assignments map in one pass. Invalid cells are
- * dropped, and a day left with no valid cells is dropped with them.
- * @param {object} assignments @param {(siteId: string) => boolean} [isKnownSite]
- */
-function normalizeAssignments(assignments, isKnownSite) {
-  const clean = {};
-  for (const [date, day] of Object.entries(assignments || {})) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !day || typeof day !== "object") continue;
-    const cleanDay = {};
-    for (const [phone, raw] of Object.entries(day)) {
-      const assignment = normalizeAssignmentForWrite(raw, isKnownSite);
-      if (assignment) cleanDay[phone] = assignment;
-    }
-    if (Object.keys(cleanDay).length) clean[date] = cleanDay;
-  }
-  return clean;
-}
-
-function docId(tenantId, weekStart) {
-  return `${tenantId}_${weekStart}`;
-}
-
-/** Monday of the week containing `date`, as YYYY-MM-DD. */
-function mondayOf(date) {
-  const d = new Date(date);
-  const day = d.getDay(); // 0=Sun
-  const diff = day === 0 ? -6 : 1 - day;
-  d.setDate(d.getDate() + diff);
-  return d.toISOString().slice(0, 10);
-}
-
-function emptyWeek(tenantId, weekStart) {
-  return { tenantId, weekStart, assignments: {}, published: false, publishedAt: null, revenueForecast: null, openingStock: null, closingStock: null };
-}
-
-/**
- * Shared by both twins: one person's assignment on one date, normalized.
- *
- * Deliberately does NOT require the week to be published. A draft assignment
- * is still the best available statement of which building someone was sent
- * to, and the geofence is guarding against clocking in from home — not
- * against an unpublished roster.
- */
-function assignmentFromWeek(week, dateIso, phone) {
-  const day = (week && week.assignments && week.assignments[dateIso]) || null;
-  return day ? normalizeAssignment(day[phone]) : null;
-}
-
-class InMemoryRosterStore {
+class InMemoryRosterStore extends BaseRosterStore {
   constructor() {
-    /** @type {Map<string, object>} */
-    this._rosters = new Map();
+    super();
+    /** @type {Map<string, Shift>} */
+    this._shifts = new Map();
+    this._seq = 0;
   }
 
-  async getWeek(tenantId, weekStart) {
-    return this._rosters.get(docId(tenantId, weekStart)) || emptyWeek(tenantId, weekStart);
+  async addShift(shift) {
+    const id = shift.id || `shift-${++this._seq}`;
+    const rec = normalizeShift(id, shift.tenantId, shift);
+    this._shifts.set(id, rec);
+    return rec;
   }
 
-  async saveWeek(tenantId, weekStart, assignments, extras = {}) {
-    const id = docId(tenantId, weekStart);
-    const existing = this._rosters.get(id) || emptyWeek(tenantId, weekStart);
-    existing.assignments = assignments;
-    for (const key of ["revenueForecast", "openingStock", "closingStock"]) {
-      if (extras[key] !== undefined) existing[key] = extras[key];
-    }
-    this._rosters.set(id, existing);
-    return existing;
+  async listByWorker(tenantId, phone, fromDateIso, toDateIso) {
+    return [...this._shifts.values()].filter(
+      (s) => s.tenantId === tenantId && s.workerId === phone && s.date >= fromDateIso && s.date <= toDateIso
+    );
   }
 
-  async markPublished(tenantId, weekStart) {
-    const id = docId(tenantId, weekStart);
-    const existing = this._rosters.get(id) || emptyWeek(tenantId, weekStart);
-    existing.published = true;
-    existing.publishedAt = new Date().toISOString();
-    this._rosters.set(id, existing);
-    return existing;
+  async listByRange(tenantId, fromDateIso, toDateIso) {
+    return [...this._shifts.values()].filter(
+      (s) => s.tenantId === tenantId && s.date >= fromDateIso && s.date <= toDateIso
+    );
   }
 
-  /**
-   * The published week docs covering "now" — used by the WhatsApp "roster"
-   * command so staff can see their upcoming shifts. Returns current week +
-   * next week if published.
-   */
-  async getPublishedWeeks(tenantId, weekStarts) {
-    return weekStarts
-      .map((ws) => this._rosters.get(docId(tenantId, ws)))
-      .filter((r) => r && r.published);
-  }
-
-  /**
-   * One person's assignment on one date — the lookup the geofence resolver
-   * needs at clock-in time. Returns null when they aren't rostered.
-   * @returns {Promise<Assignment|null>}
-   */
-  async findAssignment(tenantId, dateIso, phone) {
-    const week = await this.getWeek(tenantId, mondayOf(dateIso + "T12:00:00"));
-    return assignmentFromWeek(week, dateIso, phone);
-  }
-
-  /**
-   * Books one person into one cell. This is how accepting a staffing offer
-   * becomes a real shift: the roster is what the clock-in geofence resolves
-   * against (siteResolver.js), so writing the assignment here is what makes
-   * step 1 and step 2 fit together without a second placement collection.
-   *
-   * Passing null clears the cell.
-   */
-  async setAssignment(tenantId, dateIso, phone, assignment) {
-    const weekStart = mondayOf(dateIso + "T12:00:00");
-    const id = docId(tenantId, weekStart);
-    const existing = this._rosters.get(id) || emptyWeek(tenantId, weekStart);
-    const day = (existing.assignments[dateIso] = existing.assignments[dateIso] || {});
-    const clean = assignment ? normalizeAssignment(assignment) : null;
-    if (clean) day[phone] = clean;
-    else delete day[phone];
-    if (!Object.keys(day).length) delete existing.assignments[dateIso];
-    this._rosters.set(id, existing);
-    return existing;
+  async update(tenantId, shiftId, patch) {
+    const s = this._shifts.get(shiftId);
+    if (!s || s.tenantId !== tenantId) return null;
+    Object.assign(s, patch);
+    return s;
   }
 }
 
-class FirestoreRosterStore {
+class FirestoreRosterStore extends BaseRosterStore {
   constructor(db) {
+    super();
     this.db = db;
-    this.collection = db.collection("rosters");
   }
 
-  async getWeek(tenantId, weekStart) {
-    const doc = await this.collection.doc(docId(tenantId, weekStart)).get();
-    return doc.exists ? doc.data() : emptyWeek(tenantId, weekStart);
+  _col(tenantId) {
+    return this.db.collection("tenants").doc(tenantId).collection("shifts");
   }
 
-  async saveWeek(tenantId, weekStart, assignments, extras = {}) {
-    const ref = this.collection.doc(docId(tenantId, weekStart));
-    const doc = await ref.get();
-    const existing = doc.exists ? doc.data() : emptyWeek(tenantId, weekStart);
-    existing.assignments = assignments;
-    for (const key of ["revenueForecast", "openingStock", "closingStock"]) {
-      if (extras[key] !== undefined) existing[key] = extras[key];
-    }
-    await ref.set(existing);
-    return existing;
-  }
-
-  async markPublished(tenantId, weekStart) {
-    const ref = this.collection.doc(docId(tenantId, weekStart));
-    const doc = await ref.get();
-    const existing = doc.exists ? doc.data() : emptyWeek(tenantId, weekStart);
-    existing.published = true;
-    existing.publishedAt = new Date().toISOString();
-    await ref.set(existing);
-    return existing;
-  }
-
-  async getPublishedWeeks(tenantId, weekStarts) {
-    const docs = await Promise.all(
-      weekStarts.map((ws) => this.collection.doc(docId(tenantId, ws)).get())
-    );
-    return docs.filter((d) => d.exists && d.data().published).map((d) => d.data());
-  }
-
-  /** One person's assignment on one date — see the in-memory twin. */
-  async findAssignment(tenantId, dateIso, phone) {
-    const week = await this.getWeek(tenantId, mondayOf(dateIso + "T12:00:00"));
-    return assignmentFromWeek(week, dateIso, phone);
+  async addShift(shift) {
+    const { tenantId, id, ...data } = shift;
+    const col = this._col(tenantId);
+    const ref = id ? col.doc(id) : col.doc();
+    await ref.set({ ...data, published: data.published === true }, { merge: true });
+    return normalizeShift(ref.id, tenantId, data);
   }
 
   /**
-   * Books one person into one cell — see the in-memory twin for why this is
-   * the join between steps 1 and 2.
-   *
-   * Transactional whole-document read-modify-write. Two people accepting
-   * different shifts in the same week land in the same document, and a plain
-   * update would drop one of them. Dotted field paths aren't an option here:
-   * the keys are dates and phone numbers, not identifiers.
+   * Equality on workerId plus a range on date: this needs a composite index
+   * (workerId ASC, date ASC) on the `shifts` collection group. Without it the
+   * query throws and we fall back to the date-range-only query, which is what
+   * the roster page already uses, then filter in memory.
    */
-  async setAssignment(tenantId, dateIso, phone, assignment) {
-    const weekStart = mondayOf(dateIso + "T12:00:00");
-    const ref = this.collection.doc(docId(tenantId, weekStart));
-    return this.db.runTransaction(async (tx) => {
-      const doc = await tx.get(ref);
-      const week = doc.exists ? doc.data() : emptyWeek(tenantId, weekStart);
-      week.assignments = week.assignments || {};
-      const day = (week.assignments[dateIso] = week.assignments[dateIso] || {});
-      const clean = assignment ? normalizeAssignment(assignment) : null;
-      if (clean) day[phone] = clean;
-      else delete day[phone];
-      if (!Object.keys(day).length) delete week.assignments[dateIso];
-      tx.set(ref, week);
-      return week;
-    });
+  async listByWorker(tenantId, phone, fromDateIso, toDateIso) {
+    try {
+      const snap = await this._col(tenantId)
+        .where("workerId", "==", phone)
+        .where("date", ">=", fromDateIso)
+        .where("date", "<=", toDateIso)
+        .get();
+      return snap.docs.map((d) => normalizeShift(d.id, tenantId, d.data()));
+    } catch (err) {
+      if (!/index/i.test(err.message || "")) throw err;
+      const all = await this.listByRange(tenantId, fromDateIso, toDateIso);
+      return all.filter((s) => s.workerId === phone);
+    }
+  }
+
+  async listByRange(tenantId, fromDateIso, toDateIso) {
+    const snap = await this._col(tenantId)
+      .where("date", ">=", fromDateIso)
+      .where("date", "<=", toDateIso)
+      .get();
+    return snap.docs.map((d) => normalizeShift(d.id, tenantId, d.data()));
+  }
+
+  async update(tenantId, shiftId, patch) {
+    const ref = this._col(tenantId).doc(shiftId);
+    await ref.update(patch);
+    const doc = await ref.get();
+    return doc.exists ? normalizeShift(doc.id, tenantId, doc.data()) : null;
   }
 }
 
 module.exports = {
   InMemoryRosterStore,
   FirestoreRosterStore,
-  normalizeAssignment,
-  normalizeAssignmentForWrite,
-  normalizeAssignments,
-  canonicalSlot,
-  slotWindow,
-  windowsOverlap,
   mondayOf,
-  PRESET_SLOTS,
-  PRESET_HOURS,
-  CUSTOM_SLOT_RE,
+  addDays,
+  localDateIso,
+  shiftWindow,
 };
