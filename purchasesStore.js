@@ -36,6 +36,10 @@ class InMemoryPurchasesStore {
     return [...this._purchases.values()].filter((p) => p.tenantId === tenantId);
   }
 
+  async findById(id) {
+    return this._purchases.get(id) || null;
+  }
+
   async remove(id) {
     return this._purchases.delete(id);
   }
@@ -66,6 +70,11 @@ class FirestorePurchasesStore {
   async listByTenant(tenantId) {
     const snap = await this.collection.where("tenantId", "==", tenantId).get();
     return snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  }
+
+  async findById(id) {
+    const doc = await this.collection.doc(id).get();
+    return doc.exists ? { id: doc.id, ...doc.data() } : null;
   }
 
   async remove(id) {

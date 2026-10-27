@@ -63,6 +63,26 @@ class InMemoryTenantStore {
     Object.assign(existing, partial);
     return existing;
   }
+
+  /** Creates a venue. Fails if the id is taken. */
+  async create(tenantId, data) {
+    if (this._tenants.has(tenantId)) throw new Error("TENANT_EXISTS");
+    this._tenants.set(tenantId, { ...data });
+    return { tenantId, ...data };
+  }
+
+  /** The venue a manager's dashboard key opens, or null. */
+  async findByDashboardKey(key) {
+    if (!key) return null;
+    for (const [tenantId, data] of this._tenants.entries()) {
+      if (data.dashboardKey && data.dashboardKey === key) return { tenantId, ...data };
+    }
+    return null;
+  }
+
+  async listAll() {
+    return [...this._tenants.entries()].map(([tenantId, data]) => ({ tenantId, ...data }));
+  }
 }
 
 /**
@@ -96,6 +116,31 @@ class FirestoreTenantStore {
     await this.collection.doc(tenantId).set(partial, { merge: true });
     const doc = await this.collection.doc(tenantId).get();
     return doc.exists ? doc.data() : null;
+  }
+
+  /** Creates a venue. Fails if the id is taken. */
+  async create(tenantId, data) {
+    const ref = this.collection.doc(tenantId);
+    await this.db.runTransaction(async (tx) => {
+      const doc = await tx.get(ref);
+      if (doc.exists) throw new Error("TENANT_EXISTS");
+      tx.set(ref, data);
+    });
+    return { tenantId, ...data };
+  }
+
+  /** Single-field equality — no composite index required. */
+  async findByDashboardKey(key) {
+    if (!key) return null;
+    const snap = await this.collection.where("dashboardKey", "==", key).limit(1).get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    return { tenantId: doc.id, ...doc.data() };
+  }
+
+  async listAll() {
+    const snap = await this.collection.get();
+    return snap.docs.map((d) => ({ tenantId: d.id, ...d.data() }));
   }
 }
 

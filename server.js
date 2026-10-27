@@ -8,6 +8,7 @@
  */
 
 const express = require("express");
+const crypto = require("crypto");
 const path = require("path");
 const { verifyMetaSignature } = require("./verifySignature");
 const { sendText, setChannelResolver } = require("./whatsapp");
@@ -22,9 +23,12 @@ const { gridModel, nextWeekStart } = require("./availabilityCapture");
 const { normalizeDays, declaredCellCount, isSubmitted } = require("./availabilityStore");
 const { weekStartOf, weekDates, BLOCKS, DAY_KEYS, normalizeBlocks } = require("./availabilityBlocks");
 
-// The single venue this build supports so far (see decisions log — multi-
-// tenant support is a later step). The dashboard is scoped to this tenant.
-const DASHBOARD_TENANT_ID = "demo-venue";
+// Multi-venue: every dashboard request carries req.tenantId, resolved from
+// the dashboard key by requireDashboardKey. MANAGER_DASHBOARD_PASSWORD is the
+// admin key: it opens the original venue below AND the /api/admin routes that
+// create new venues. Each new venue gets its own random key.
+const ADMIN_TENANT_ID = process.env.ADMIN_TENANT_ID || "demo-venue";
+const DEFAULT_STAFF_LIMIT = 15;
 
 const app = express();
 const {
@@ -52,8 +56,13 @@ const { sweepWeeklyPings } = require("./availabilityCapture");
 if (process.env.AVAILABILITY_PINGS_DISABLED === "1") {
   console.warn("[startup] AVAILABILITY_PINGS_DISABLED=1 — weekly availability pings are off");
 } else {
-  const pingTick = () =>
-    sweepWeeklyPings(DASHBOARD_TENANT_ID, deps, {}).catch((err) => console.error("[pings] sweep failed:", err.message));
+  const pingTick = async () => {
+    try {
+      for (const t of await tenantStore.listAll()) {
+        await sweepWeeklyPings(t.tenantId, deps, {}).catch((err) => console.error(`[pings] sweep failed for ${t.tenantId}:`, err.message));
+      }
+    } catch (err) { console.error("[pings] couldn't list venues:", err.message); }
+  };
   setTimeout(pingTick, 60 * 1000);
   setInterval(pingTick, 60 * 60 * 1000).unref();
 }
@@ -262,8 +271,8 @@ app.get("/api/availability", requireDashboardKey, async (req, res) => {
       ? weekStartOf(`${String(req.query.week)}T12:00:00`)
       : nextWeekStart();
     const [docs, staff] = await Promise.all([
-      availabilityStore.listByWeek(DASHBOARD_TENANT_ID, weekStart),
-      staffStore.listByTenant(DASHBOARD_TENANT_ID),
+      availabilityStore.listByWeek(req.tenantId, weekStart),
+      staffStore.listByTenant(req.tenantId),
     ]);
 
     const byPhone = new Map(docs.map((d) => [d.phone, d]));
@@ -292,7 +301,7 @@ app.get("/api/availability", requireDashboardKey, async (req, res) => {
       answered: answered.length,
       unavailable: unavailable.length,
       unknown: silent.map((s) => ({ phone: s.phone, name: s.name })),
-      freeTodayNow: (await freeTodayStore.listLive(DASHBOARD_TENANT_ID)).length,
+      freeTodayNow: (await freeTodayStore.listLive(req.tenantId)).length,
     });
   } catch (err) {
     console.error("[availability] failed to load week:", err);
@@ -318,15 +327,57 @@ app.get("/dashboard", (_req, res) => {
  * If the env var isn't set at all, every request is rejected — safer than
  * silently allowing open access.
  */
-function requireDashboardKey(req, res, next) {
-  const expected = process.env.MANAGER_DASHBOARD_PASSWORD;
-  if (!expected) {
+const keyCache = new Map(); // key -> { tenantId, name, at }
+const KEY_CACHE_MS = 60 * 1000;
+
+async function requireDashboardKey(req, res, next) {
+  const adminKey = process.env.MANAGER_DASHBOARD_PASSWORD;
+  if (!adminKey) {
     return res.status(500).json({ error: "MANAGER_DASHBOARD_PASSWORD is not set on the server." });
   }
   const provided = req.query.key || req.get("X-Dashboard-Key");
-  if (provided !== expected) {
-    return res.status(401).json({ error: "Invalid or missing dashboard key." });
+  if (!provided) return res.status(401).json({ error: "Invalid or missing dashboard key." });
+
+  if (provided === adminKey) {
+    req.tenantId = ADMIN_TENANT_ID;
+    req.isAdmin = true;
+    return next();
   }
+  try {
+    const cached = keyCache.get(provided);
+    if (cached && Date.now() - cached.at < KEY_CACHE_MS) {
+      req.tenantId = cached.tenantId;
+      req.tenantName = cached.name;
+      return next();
+    }
+    const tenant = await tenantStore.findByDashboardKey(provided);
+    if (!tenant || tenant.active === false) {
+      return res.status(401).json({ error: "Invalid or missing dashboard key." });
+    }
+    keyCache.set(provided, { tenantId: tenant.tenantId, name: tenant.name, at: Date.now() });
+    req.tenantId = tenant.tenantId;
+    req.tenantName = tenant.name;
+    return next();
+  } catch (err) {
+    console.error("[auth] key lookup failed:", err.message);
+    return res.status(500).json({ error: "Couldn't verify the dashboard key — try again." });
+  }
+}
+
+/**
+ * Cross-venue guard for routes addressed by record id: a manager's key must
+ * only ever touch records that belong to their venue. Responds 404 (not 403)
+ * so an id from another venue looks the same as a missing one.
+ */
+async function owned(req, res, record) {
+  if (record && record.tenantId === req.tenantId) return true;
+  res.status(404).json({ error: "Not found." });
+  return false;
+}
+
+/** Admin-only (the MANAGER_DASHBOARD_PASSWORD key). */
+function requireAdmin(req, res, next) {
+  if (!req.isAdmin) return res.status(403).json({ error: "Admin key required." });
   next();
 }
 
@@ -337,18 +388,18 @@ function requireDashboardKey(req, res, next) {
  * dashboard.html, not here — keeps this endpoint a single simple query per
  * collection (no compound Firestore indexes required).
  */
-app.get("/api/dashboard", requireDashboardKey, async (_req, res) => {
+app.get("/api/dashboard", requireDashboardKey, async (req, res) => {
   try {
     // Scale discipline: never ship the whole shift history to the browser.
     // The dashboard only renders open shifts + a recent window (history table
     // caps at 25, hours/variance use 7 days), so 14 days covers everything.
     const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
     const [staff, openShifts, recentShifts, venue, sites] = await Promise.all([
-      staffStore.listByTenant(DASHBOARD_TENANT_ID),
-      shiftsStore.listOpenByTenant(DASHBOARD_TENANT_ID),
-      shiftsStore.listRecentByTenant(DASHBOARD_TENANT_ID, since),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
-      siteStore.listByTenant(DASHBOARD_TENANT_ID, { includeInactive: true }),
+      staffStore.listByTenant(req.tenantId),
+      shiftsStore.listOpenByTenant(req.tenantId),
+      shiftsStore.listRecentByTenant(req.tenantId, since),
+      tenantStore.findById(req.tenantId),
+      siteStore.listByTenant(req.tenantId, { includeInactive: true }),
     ]);
     const seen = new Set();
     const shifts = [...openShifts, ...recentShifts].filter((s) => {
@@ -370,6 +421,7 @@ app.get("/api/dashboard", requireDashboardKey, async (_req, res) => {
 app.post("/api/shifts/:id/review", requireDashboardKey, async (req, res) => {
   try {
     const approve = Boolean(req.body?.approve);
+    if (!(await owned(req, res, await shiftsStore.findById(req.params.id)))) return;
     const updated = await shiftsStore.reviewFlaggedShift(req.params.id, approve);
     res.json({ ok: true, shift: updated });
   } catch (err) {
@@ -415,9 +467,24 @@ app.post("/api/staff", requireDashboardKey, async (req, res) => {
       }
     }
 
+    const cleanPhone = String(phone).replace(/\D/g, "");
+    if (!cleanPhone) return res.status(400).json({ error: "phone must be digits, international format (e.g. 61412345678)." });
+    const existing = await staffStore.findByPhone(cleanPhone);
+    if (existing && existing.tenantId && existing.tenantId !== req.tenantId) {
+      return res.status(409).json({ error: "That number is already registered at another venue." });
+    }
+    if (!existing) {
+      const tenant = await tenantStore.findById(req.tenantId);
+      const limit = (tenant && tenant.staffLimit) || DEFAULT_STAFF_LIMIT;
+      const current = (await staffStore.listByTenant(req.tenantId)).filter((p) => p.active !== false && p.role !== "owner").length;
+      if (current >= limit) {
+        return res.status(402).json({ error: `Your plan includes ${limit} staff. Deactivate someone or upgrade to add more.` });
+      }
+    }
+
     await staffStore.upsert({
-      phone: String(phone).trim(),
-      tenantId: DASHBOARD_TENANT_ID,
+      phone: cleanPhone,
+      tenantId: req.tenantId,
       name: String(name).trim(),
       role,
       department: department ? String(department).trim() : null,
@@ -442,11 +509,11 @@ app.post("/api/staff", requireDashboardKey, async (req, res) => {
  * reports whether the tenant is still leaning on its pre-sites `geofence`
  * field, which is the one thing an operator needs prompting to fix.
  */
-app.get("/api/sites", requireDashboardKey, async (_req, res) => {
+app.get("/api/sites", requireDashboardKey, async (req, res) => {
   try {
     const [sites, venue] = await Promise.all([
-      siteStore.listByTenant(DASHBOARD_TENANT_ID, { includeInactive: true }),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
+      siteStore.listByTenant(req.tenantId, { includeInactive: true }),
+      tenantStore.findById(req.tenantId),
     ]);
     res.json({
       sites,
@@ -476,7 +543,19 @@ app.post("/api/sites", requireDashboardKey, async (req, res) => {
     const name = String(body.name || "").trim();
     if (!name) return res.status(400).json({ error: "name is required." });
 
-    const siteId = body.siteId ? slugifySiteId(body.siteId) : slugifySiteId(name);
+    // Site ids are global, so a new site's id is prefixed with the venue id —
+    // two venues can both have a "Main Kitchen" without colliding. Editing an
+    // existing site keeps its id (and must belong to this venue).
+    let siteId;
+    if (body.siteId) {
+      siteId = slugifySiteId(body.siteId);
+      const existing = siteId ? await siteStore.findById(siteId) : null;
+      if (existing && existing.tenantId !== req.tenantId) return res.status(404).json({ error: "Not found." });
+      if (!existing) siteId = `${req.tenantId}-${siteId}`;
+    } else {
+      const slug = slugifySiteId(name);
+      siteId = slug ? `${req.tenantId}-${slug}` : null;
+    }
     if (!siteId) {
       return res.status(400).json({ error: "name must contain at least one letter or number." });
     }
@@ -495,7 +574,7 @@ app.post("/api/sites", requireDashboardKey, async (req, res) => {
 
 
     const site = await siteStore.upsert(siteId, {
-      tenantId: DASHBOARD_TENANT_ID,
+      tenantId: req.tenantId,
       name,
       address: body.address,
       geofence,
@@ -516,6 +595,7 @@ app.post("/api/sites", requireDashboardKey, async (req, res) => {
  */
 app.post("/api/sites/:id/active", requireDashboardKey, async (req, res) => {
   try {
+    if (!(await owned(req, res, await siteStore.findById(req.params.id)))) return;
     const site = await siteStore.setActive(req.params.id, Boolean(req.body?.active));
     res.json({ ok: true, site });
   } catch (err) {
@@ -533,9 +613,9 @@ app.post("/api/sites/:id/active", requireDashboardKey, async (req, res) => {
  * as editable starting points; the venue owner confirms them against their
  * own award / state law. Numbers here feed roster costing only, never pay.
  */
-app.get("/api/settings/penalties", requireDashboardKey, async (_req, res) => {
+app.get("/api/settings/penalties", requireDashboardKey, async (req, res) => {
   try {
-    const venue = await tenantStore.findById(DASHBOARD_TENANT_ID);
+    const venue = await tenantStore.findById(req.tenantId);
     res.json({ penaltyRules: (venue && venue.penaltyRules) || null });
   } catch (err) {
     console.error("[settings] failed to load penalties:", err);
@@ -566,7 +646,7 @@ app.post("/api/settings/penalties", requireDashboardKey, async (req, res) => {
         ALL: num(r.slotHours && r.slotHours.ALL, 0.5, 24) ?? 10,
       },
     };
-    await tenantStore.updateSettings(DASHBOARD_TENANT_ID, { penaltyRules });
+    await tenantStore.updateSettings(req.tenantId, { penaltyRules });
     res.json({ ok: true, penaltyRules });
   } catch (err) {
     console.error("[settings] failed to save penalties:", err);
@@ -589,7 +669,7 @@ app.get("/api/purchases", requireDashboardKey, async (req, res) => {
     const end = new Date(weekStart + "T12:00:00");
     end.setDate(end.getDate() + 7);
     const weekEnd = end.toISOString().slice(0, 10);
-    const all = await purchasesStore.listByTenant(DASHBOARD_TENANT_ID);
+    const all = await purchasesStore.listByTenant(req.tenantId);
     const purchases = all
       .filter((p) => p.date >= weekStart && p.date < weekEnd)
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
@@ -616,7 +696,7 @@ app.post("/api/purchases", requireDashboardKey, async (req, res) => {
       return res.status(400).json({ error: "amount must be a positive number." });
     }
     const record = await purchasesStore.add({
-      tenantId: DASHBOARD_TENANT_ID,
+      tenantId: req.tenantId,
       date,
       amount: amt,
       supplier: supplier ? String(supplier).trim().slice(0, 80) : null,
@@ -633,6 +713,7 @@ app.post("/api/purchases", requireDashboardKey, async (req, res) => {
 /** DELETE /api/purchases/:id — remove a mis-entered purchase. */
 app.delete("/api/purchases/:id", requireDashboardKey, async (req, res) => {
   try {
+    if (!(await owned(req, res, await purchasesStore.findById(req.params.id)))) return;
     await purchasesStore.remove(req.params.id);
     res.json({ ok: true });
   } catch (err) {
@@ -649,6 +730,7 @@ app.delete("/api/purchases/:id", requireDashboardKey, async (req, res) => {
  */
 app.post("/api/shifts/:id/close", requireDashboardKey, async (req, res) => {
   try {
+    if (!(await owned(req, res, await shiftsStore.findById(req.params.id)))) return;
     const updated = await shiftsStore.closeShift(req.params.id, {
       time: new Date().toISOString(),
       forcedByManager: true,
@@ -678,6 +760,7 @@ app.post("/api/shifts/:id/amend", requireDashboardKey, async (req, res) => {
     if (bm != null && (!isFinite(bm) || bm < 0 || bm > 1440)) {
       return res.status(400).json({ error: "breakMinutes must be 0–1440." });
     }
+    if (!(await owned(req, res, await shiftsStore.findById(req.params.id)))) return;
     const updated = await shiftsStore.amendShift(req.params.id, {
       clockInTime, clockOutTime, breakMinutes: bm,
     });
@@ -729,9 +812,9 @@ app.get("/api/reports/payroll", requireDashboardKey, async (req, res) => {
       return res.status(400).json({ error: "from and to must be YYYY-MM-DD." });
     }
     const [staff, venue, shiftsRaw] = await Promise.all([
-      staffStore.listByTenant(DASHBOARD_TENANT_ID),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
-      shiftsStore.listRecentByTenant(DASHBOARD_TENANT_ID, from),
+      staffStore.listByTenant(req.tenantId),
+      tenantStore.findById(req.tenantId),
+      shiftsStore.listRecentByTenant(req.tenantId, from),
     ]);
     const rules = venue && venue.penaltyRules;
     const endExclusive = new Date(to + "T12:00:00");
@@ -822,7 +905,7 @@ app.post("/api/weeks/:week", requireDashboardKey, async (req, res) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
       return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
     }
-    const venue = (await tenantStore.findById(DASHBOARD_TENANT_ID)) || {};
+    const venue = (await tenantStore.findById(req.tenantId)) || {};
     const weeks = { ...(venue.weeks || {}) };
     const cur = { ...(weeks[week] || {}) };
     for (const k of ["revenueForecast", "openingStock", "closingStock"]) {
@@ -834,7 +917,7 @@ app.post("/api/weeks/:week", requireDashboardKey, async (req, res) => {
       cur[k] = n;
     }
     weeks[week] = cur;
-    await tenantStore.updateSettings(DASHBOARD_TENANT_ID, { weeks });
+    await tenantStore.updateSettings(req.tenantId, { weeks });
     res.json({ ok: true, week, ...cur });
   } catch (err) {
     console.error("[weeks] failed to save:", err);
@@ -858,10 +941,10 @@ app.get("/api/reports/pnl", requireDashboardKey, async (req, res) => {
     const weekEnd = endD.toISOString().slice(0, 10);
 
     const [staff, venue, shiftsRaw, purchasesAll] = await Promise.all([
-      staffStore.listByTenant(DASHBOARD_TENANT_ID),
-      tenantStore.findById(DASHBOARD_TENANT_ID),
-      shiftsStore.listRecentByTenant(DASHBOARD_TENANT_ID, week),
-      purchasesStore.listByTenant(DASHBOARD_TENANT_ID),
+      staffStore.listByTenant(req.tenantId),
+      tenantStore.findById(req.tenantId),
+      shiftsStore.listRecentByTenant(req.tenantId, week),
+      purchasesStore.listByTenant(req.tenantId),
     ]);
     // Revenue forecast and stocktake for the week, entered on the dashboard's
     // "Numbers" panel (POST /api/weeks/:week). Lives on the tenant doc.
@@ -920,6 +1003,111 @@ app.get("/api/reports/pnl", requireDashboardKey, async (req, res) => {
   }
 });
 
+/** GET /api/me — which venue this key opens (the pages show the name). */
+app.get("/api/me", requireDashboardKey, async (req, res) => {
+  try {
+    const tenant = await tenantStore.findById(req.tenantId);
+    res.json({ tenantId: req.tenantId, name: (tenant && tenant.name) || req.tenantId, isAdmin: Boolean(req.isAdmin), staffLimit: (tenant && tenant.staffLimit) || DEFAULT_STAFF_LIMIT });
+  } catch (err) {
+    res.status(500).json({ error: "Couldn't load venue." });
+  }
+});
+
+/**
+ * Venue provisioning — admin key only. This is what happens when a Pro
+ * member joins: one call creates their venue, their owner login for the bot,
+ * a dashboard key of their own, and returns the welcome text to send them.
+ *
+ * POST /api/admin/tenants
+ * Body: { name, ownerName, ownerPhone, ownerEmail?, staffLimit? }
+ */
+app.post("/api/admin/tenants", requireDashboardKey, requireAdmin, async (req, res) => {
+  try {
+    const { name, ownerName, ownerEmail, staffLimit } = req.body || {};
+    const ownerPhone = String((req.body || {}).ownerPhone || "").replace(/\D/g, "");
+    if (!name || !ownerName || !ownerPhone) {
+      return res.status(400).json({ error: "name, ownerName and ownerPhone are required." });
+    }
+    const existingOwner = await staffStore.findByPhone(ownerPhone);
+    if (existingOwner && existingOwner.tenantId) {
+      return res.status(409).json({ error: `${ownerPhone} is already registered at venue "${existingOwner.tenantId}".` });
+    }
+    const base = slugifySiteId(name) || "venue";
+    let tenantId = base;
+    for (let n = 2; await tenantStore.findById(tenantId); n++) tenantId = `${base}-${n}`;
+    const dashboardKey = crypto.randomBytes(12).toString("base64url");
+
+    const tenant = await tenantStore.create(tenantId, {
+      name: String(name).trim(),
+      plan: "pro",
+      staffLimit: Number(staffLimit) > 0 ? Number(staffLimit) : DEFAULT_STAFF_LIMIT,
+      dashboardKey,
+      ownerPhone,
+      ownerName: String(ownerName).trim(),
+      ownerEmail: ownerEmail || null,
+      active: true,
+      createdAt: new Date().toISOString(),
+      fixedCosts: [],
+    });
+    await staffStore.upsert({
+      phone: ownerPhone, tenantId, name: String(ownerName).trim(), role: "owner",
+      department: null, wageRate: null, active: true, createdAt: new Date().toISOString(),
+    });
+
+    const base_url = process.env.PUBLIC_BASE_URL || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : `${req.protocol}://${req.get("host")}`);
+    const bot = process.env.TELEGRAM_BOT_USERNAME || "CrewLine_SuperApps_bot";
+    const welcome =
+      `Hi ${String(ownerName).trim()}, your Crewline venue "${String(name).trim()}" is ready.\n\n` +
+      `1. Roster + crew list: ${base_url}/roster?key=${dashboardKey}\n` +
+      `2. Dashboard (attendance, numbers, sites): ${base_url}/dashboard?key=${dashboardKey}\n` +
+      `   Your dashboard key is ${dashboardKey} — keep it private, it's your login.\n` +
+      `3. Add your staff on the Roster page with the mobile they use on Telegram (up to ${tenant.staffLimit}).\n` +
+      `4. Everyone (you too) opens Telegram, messages @${bot}, taps "Share my phone number" — done. ` +
+      `From then on: "in"/"out" to clock in, "roster" to see shifts, "temps" for food-safety checks.\n` +
+      `5. On the Dashboard, add your site (address + radius) so clock-ins are location-checked.\n\n` +
+      `Reply to this message if anything is unclear.`;
+
+    console.log(`[admin] venue created: ${tenantId} (${tenant.name}) owner=${ownerPhone}`);
+    res.json({ ok: true, tenantId, name: tenant.name, dashboardKey, ownerPhone, rosterUrl: `${base_url}/roster?key=${dashboardKey}`, dashboardUrl: `${base_url}/dashboard?key=${dashboardKey}`, welcome });
+  } catch (err) {
+    console.error("[admin] failed to create venue:", err);
+    res.status(500).json({ error: "Failed to create the venue." });
+  }
+});
+
+/** GET /api/admin/tenants — every venue, with staff counts. Admin key only. */
+app.get("/api/admin/tenants", requireDashboardKey, requireAdmin, async (_req, res) => {
+  try {
+    const tenants = await tenantStore.listAll();
+    const out = [];
+    for (const t of tenants) {
+      const staff = await staffStore.listByTenant(t.tenantId);
+      out.push({
+        tenantId: t.tenantId, name: t.name, plan: t.plan || null, active: t.active !== false,
+        staffLimit: t.staffLimit || DEFAULT_STAFF_LIMIT, staff: staff.filter((p) => p.active !== false).length,
+        linked: staff.filter((p) => p.telegramChatId).length, ownerPhone: t.ownerPhone || null, createdAt: t.createdAt || null,
+      });
+    }
+    res.json({ tenants: out });
+  } catch (err) {
+    console.error("[admin] failed to list venues:", err);
+    res.status(500).json({ error: "Failed to list venues." });
+  }
+});
+
+/** POST /api/admin/tenants/:id/active — pause or resume a venue (e.g. subscription lapsed). */
+app.post("/api/admin/tenants/:id/active", requireDashboardKey, requireAdmin, async (req, res) => {
+  try {
+    const t = await tenantStore.findById(req.params.id);
+    if (!t) return res.status(404).json({ error: "No venue with that id." });
+    await tenantStore.updateSettings(req.params.id, { active: Boolean(req.body?.active) });
+    keyCache.clear();
+    res.json({ ok: true, tenantId: req.params.id, active: Boolean(req.body?.active) });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update the venue." });
+  }
+});
+
 // Simple liveness probe for the host / uptime checks.
 app.get("/health", (_req, res) => res.json({ ok: true, service: "crewline", step: 2, backend }));
 
@@ -939,14 +1127,14 @@ const { getFirestoreDb } = require("./firebase");
 const foodSafetyRoutes = require("./foodSafetyRoutes");
 app.use("/api/core/foodsafety", requireDashboardKey, foodSafetyRoutes({
   db: getFirestoreDb(),
-  tenantId: DASHBOARD_TENANT_ID,
 }));
 app.get("/foodsafety", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "foodsafety.html"));
 });
 app.use("/api/core", requireDashboardKey, coreOSRoutes({
   db: getFirestoreDb(),
-  tenantId: DASHBOARD_TENANT_ID,
+  staffStore,
+  tenantStore,
   sendMessage: (phone, text) => sendText(phone, text),
 }));
 app.get("/roster", (_req, res) => {
@@ -958,7 +1146,7 @@ app.get("/roster", (_req, res) => {
 const { startWalletNudges } = require("./walletNudges");
 startWalletNudges({
   db: getFirestoreDb(),
-  tenantId: DASHBOARD_TENANT_ID,
+  listTenantIds: async () => (await tenantStore.listAll()).map((t) => t.tenantId),
   send: (phone, text) => sendText(phone, text),
 });
 
@@ -967,7 +1155,7 @@ startWalletNudges({
 const { startFoodSafetyPrompts } = require("./foodSafetyPrompts");
 startFoodSafetyPrompts({
   db: getFirestoreDb(),
-  tenantId: DASHBOARD_TENANT_ID,
+  listTenantIds: async () => (await tenantStore.listAll()).map((t) => t.tenantId),
   send: (phone, text) => sendText(phone, text),
 });
 

@@ -18,7 +18,8 @@ fallback. Setup is in `docs/telegram-channel.md`.
 | Dashboard | `/dashboard`, `server.js` | on shift now, flagged clock-ins, amendments, sites/geofence, penalty settings, week numbers, reports |
 | Food safety | `/foodsafety`, `foodSafety*.js` | temperature runs, cleaning list, deliveries, scheduled prompts |
 
-One people list: `staff/{phone}` is used by the bot and the roster page alike.
+Multi-venue: each member venue is `tenants/{tenantId}` with its own dashboard key; one bot serves all.
+One people list: `staff/{phone}` (with `tenantId`) is used by the bot and the roster page alike.
 One roster: `tenants/{tenant}/shifts`. Attendance (actual clock-ins) is the top-level `shifts`.
 
 ## Run it

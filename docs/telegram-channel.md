@@ -55,3 +55,27 @@ The server creates the composite indexes in `firestore.indexes.json` itself on b
 service account **Cloud Datastore Index Admin** in IAM once, or create the indexes in the console.
 Without them the dashboard reads the whole attendance collection on every load, which is what
 used up the free tier.
+
+## Venues (multi-tenant)
+
+Each Pro member is a **venue** with its own dashboard key. `MANAGER_DASHBOARD_PASSWORD` is the
+admin key: it opens the original venue (`ADMIN_TENANT_ID`, default `demo-venue`) and the admin
+routes. One bot serves every venue — a person is matched to their venue by the phone number they
+share, so a number can only be on one venue's list.
+
+Create a venue when a Pro order lands (admin key, copy-paste):
+
+```
+curl -X POST "https://<host>/api/admin/tenants?key=<ADMIN KEY>" \
+  -H "content-type: application/json" \
+  -d '{"name":"Blue Door Cafe","ownerName":"Dani","ownerPhone":"61400111222","ownerEmail":"dani@example.com"}'
+```
+
+The response holds the venue's `dashboardKey`, the roster and dashboard links, and a ready-to-send
+`welcome` message for the member. `GET /api/admin/tenants` lists every venue with staff and
+linked counts; `POST /api/admin/tenants/:id/active {"active":false}` pauses one (lapsed
+subscription) — its key stops working immediately, nothing is deleted.
+
+Limits: `staffLimit` per venue (default 15, owner not counted); the roster page and the
+dashboard both refuse the 16th with a plan message. Records addressed by id (shifts, sites,
+purchases) are checked against the caller's venue and answer 404 for anyone else's.

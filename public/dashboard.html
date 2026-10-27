@@ -367,7 +367,7 @@
 
 <div class="wrap" id="dashboard" style="display:none;">
   <header>
-    <span class="brand bebas">Crewline</span>
+    <span class="brand bebas">Crewline</span><span id="venueName" style="margin-left:10px;color:var(--dim);font-size:13px;"></span>
     <span class="venue mono" id="venueLine">—</span>
     <span class="grow"></span>
     <span id="serviceClock" class="bebas">--:--:--</span>
@@ -653,6 +653,12 @@
     }
 
     document.getElementById("gate").style.display = "none";
+    if (!window._venueNamed) {
+      window._venueNamed = true;
+      fetch(`/api/me?key=${encodeURIComponent(managerKey)}`).then((r) => (r.ok ? r.json() : null)).then((me) => {
+        if (me && me.name) document.getElementById("venueName").textContent = me.name;
+      }).catch(() => {});
+    }
     const dash = document.getElementById("dashboard");
     dash.style.display = "block";
     render(data);

@@ -231,7 +231,7 @@
 <body>
 
 <header>
-  <div class="brand">Crewline<small>Roster · Core</small></div>
+  <div class="brand">Crewline<small id="venueName">Roster</small></div>
   <a href="/foodsafety" style="color:var(--steel);font-weight:700;text-decoration:none;border:1px solid var(--steel-line);border-radius:8px;padding:9px 14px">Food safety</a>
   <span class="demo-tag" id="demoTag">Demo data — API not connected</span>
   <div class="weeknav">
@@ -420,6 +420,7 @@ async function load(retried){
       throw new Error("no key");
     }
     if(!rRes.ok||!wRes.ok) throw new Error("api");
+    if(!window._venueNamed){ window._venueNamed=true; fetch("/api/me?key="+encodeURIComponent(KEY)).then(x=>x.ok?x.json():null).then(me=>{ if(me&&me.name) document.getElementById("venueName").textContent=me.name; }).catch(()=>{}); }
     const r = await rRes.json();
     workers = (await wRes.json()).workers;
     shifts = r.shifts; costing = r.costing;

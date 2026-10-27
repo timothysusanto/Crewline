@@ -92,3 +92,4 @@ Add new dated entries below as decisions are made — log immediately, don't bat
 - Roster replies work: YES confirms, SWAP flags and tells linked managers.
 - P&L inputs (revenue forecast, stocktake) moved to `tenant.weeks[week]` via `POST /api/weeks/:week`.
 - Positioning: Crewline ships inside the KitchenFounder $29/mo Pro tier (up to 15 staff); not a separate SKU until someone asks.
+- 27 Oct 2026, later: multi-venue shipped. Dashboard key → venue (`requireDashboardKey`), admin key = `MANAGER_DASHBOARD_PASSWORD`, `POST /api/admin/tenants` provisions a venue + owner + welcome text, 15-staff cap (owner excluded), cross-venue id access answers 404, new site ids prefixed with the venue id, background jobs iterate venues. Crewline listed inside the KitchenFounder Pro ($29/mo) product on Shopify.

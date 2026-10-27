@@ -17,7 +17,7 @@
 const TIERS = [60, 30, 7, 0]; // 0 = expired notice
 const INTERVAL_MS = 6 * 60 * 60 * 1000;
 
-function startWalletNudges({ db, tenantId, send }) {
+function startWalletNudges({ db, listTenantIds, send }) {
   if (!db) {
     console.warn("[nudges] Firestore not configured — expiry nudges off.");
     return null;
@@ -28,6 +28,12 @@ function startWalletNudges({ db, tenantId, send }) {
   }
 
   async function tick() {
+    let tenantIds = [];
+    try { tenantIds = await listTenantIds(); } catch (err) { console.error("[nudges] couldn't list venues:", err.message); return; }
+    for (const tenantId of tenantIds) await tickTenant(tenantId);
+  }
+
+  async function tickTenant(tenantId) {
     try {
       const today = new Date().toISOString().slice(0, 10);
       const horizon = addDays(today, 60);
@@ -64,7 +70,7 @@ function startWalletNudges({ db, tenantId, send }) {
         }
       }
     } catch (err) {
-      console.error("[nudges] tick failed:", err.message);
+      console.error(`[nudges] tick failed for ${tenantId}:`, err.message);
     }
   }
 

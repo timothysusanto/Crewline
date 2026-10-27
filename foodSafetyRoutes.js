@@ -13,7 +13,7 @@
 const express = require("express");
 const { DEFAULT_SETTINGS } = require("./foodSafetyHandler");
 
-module.exports = function foodSafetyRoutes({ db, tenantId }) {
+module.exports = function foodSafetyRoutes({ db }) {
   const router = express.Router();
   if (!db) {
     router.use((_req, res) => res.status(503).json({
@@ -21,20 +21,20 @@ module.exports = function foodSafetyRoutes({ db, tenantId }) {
     }));
     return router;
   }
-  const T = () => db.collection("tenants").doc(tenantId);
-  const settingsRef = () => T().collection("settings").doc("foodSafety");
+  const T = (req) => db.collection("tenants").doc(req.tenantId);
+  const settingsRef = (req) => T(req).collection("settings").doc("foodSafety");
 
-  async function getSettings() {
-    const doc = await settingsRef().get();
-    if (!doc.exists) { await settingsRef().set(DEFAULT_SETTINGS); return { ...DEFAULT_SETTINGS }; }
+  async function getSettings(req) {
+    const doc = await settingsRef(req).get();
+    if (!doc.exists) { await settingsRef(req).set(DEFAULT_SETTINGS); return { ...DEFAULT_SETTINGS }; }
     return { ...DEFAULT_SETTINGS, ...doc.data() };
   }
 
-  router.get("/today", async (_req, res) => {
+  router.get("/today", async (req, res) => {
     try {
-      const settings = await getSettings();
+      const settings = await getSettings(req);
       const today = new Date().toISOString().slice(0, 10);
-      const snap = await T().collection("foodSafetyLogs").where("date", "==", today).get();
+      const snap = await T(req).collection("foodSafetyLogs").where("date", "==", today).get();
       const logs = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => a.at.localeCompare(b.at));
 
       const temps = logs.filter((l) => l.kind === "temp");
@@ -58,7 +58,7 @@ module.exports = function foodSafetyRoutes({ db, tenantId }) {
     try {
       const { from, to } = req.query;
       if (!from || !to) return res.status(400).json({ error: "from and to (YYYY-MM-DD) are required" });
-      const snap = await T().collection("foodSafetyLogs")
+      const snap = await T(req).collection("foodSafetyLogs")
         .where("date", ">=", from).where("date", "<=", to).get();
       const logs = snap.docs.map((d) => d.data()).sort((a, b) => a.at.localeCompare(b.at));
       const rows = [[
@@ -82,8 +82,8 @@ module.exports = function foodSafetyRoutes({ db, tenantId }) {
     } catch (e) { err(res, e); }
   });
 
-  router.get("/settings", async (_req, res) => {
-    try { res.json({ settings: await getSettings() }); } catch (e) { err(res, e); }
+  router.get("/settings", async (req, res) => {
+    try { res.json({ settings: await getSettings(req) }); } catch (e) { err(res, e); }
   });
 
   router.put("/settings", async (req, res) => {
@@ -92,8 +92,8 @@ module.exports = function foodSafetyRoutes({ db, tenantId }) {
       const patch = {};
       for (const k of allowed) if (req.body[k] !== undefined) patch[k] = req.body[k];
       if (!Object.keys(patch).length) return res.status(400).json({ error: `Nothing to update. Allowed: ${allowed.join(", ")}` });
-      await settingsRef().set(patch, { merge: true });
-      res.json({ settings: await getSettings() });
+      await settingsRef(req).set(patch, { merge: true });
+      res.json({ settings: await getSettings(req) });
     } catch (e) { err(res, e); }
   });
 
@@ -101,7 +101,7 @@ module.exports = function foodSafetyRoutes({ db, tenantId }) {
     try {
       const days = Math.min(parseInt(req.query.days, 10) || 90, 365);
       const since = new Date(Date.now() - days * 86400000).toISOString();
-      const snap = await T().collection("trainingRecords").where("completedAt", ">=", since).get();
+      const snap = await T(req).collection("trainingRecords").where("completedAt", ">=", since).get();
       res.json({
         records: snap.docs.map((d) => ({ id: d.id, ...d.data() }))
           .sort((a, b) => b.completedAt.localeCompare(a.completedAt)),

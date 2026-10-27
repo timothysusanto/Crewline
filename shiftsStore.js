@@ -71,6 +71,11 @@ class InMemoryShiftsStore {
     return { shiftId };
   }
 
+  async findById(shiftId) {
+    const s = this._shifts.get(shiftId);
+    return s ? { shiftId, ...s } : null;
+  }
+
   async findOpenShift(staffPhone) {
     let latest = null;
     for (const shift of this._shifts.values()) {
@@ -237,6 +242,11 @@ class FirestoreShiftsStore {
       breaks: [],
     });
     return { shiftId: ref.id };
+  }
+
+  async findById(shiftId) {
+    const doc = await this.collection.doc(shiftId).get();
+    return doc.exists ? { shiftId: doc.id, ...doc.data() } : null;
   }
 
   async findOpenShift(staffPhone) {

@@ -17,16 +17,22 @@
 
 const CHECK_EVERY_MS = 5 * 60 * 1000;
 
-function startFoodSafetyPrompts({ db, tenantId, send }) {
+function startFoodSafetyPrompts({ db, listTenantIds, send }) {
   if (!db) { console.warn("[fs-prompts] Firestore not configured — prompts off."); return null; }
   if (process.env.FOOD_SAFETY_PROMPTS_DISABLED === "1") {
     console.log("[fs-prompts] disabled by FOOD_SAFETY_PROMPTS_DISABLED=1");
     return null;
   }
 
-  const sentToday = new Set(); // "YYYY-MM-DD HH:MM"
+  const sentToday = new Set(); // "tenant YYYY-MM-DD HH:MM"
 
   async function tick() {
+    let tenantIds = [];
+    try { tenantIds = await listTenantIds(); } catch (err) { console.error("[fs-prompts] couldn't list venues:", err.message); return; }
+    for (const tenantId of tenantIds) await tickTenant(tenantId);
+  }
+
+  async function tickTenant(tenantId) {
     try {
       const doc = await db.collection("tenants").doc(tenantId)
         .collection("settings").doc("foodSafety").get();
@@ -48,7 +54,7 @@ function startFoodSafetyPrompts({ db, tenantId, send }) {
       for (const t of times) {
         const [h, m] = t.split(":").map(Number);
         const slotMins = h * 60 + m;
-        const key = `${localDate} ${t}`;
+        const key = `${tenantId} ${localDate} ${t}`;
         // Fire within 10 minutes after the slot, once.
         if (nowMins >= slotMins && nowMins < slotMins + 10 && !sentToday.has(key)) {
           sentToday.add(key);
@@ -63,7 +69,7 @@ function startFoodSafetyPrompts({ db, tenantId, send }) {
       // Keep the dedupe set from growing forever.
       for (const key of sentToday) if (!key.startsWith(localDate)) sentToday.delete(key);
     } catch (e) {
-      console.error("[fs-prompts] tick failed:", e.message);
+      console.error(`[fs-prompts] tick failed for ${tenantId}:`, e.message);
     }
   }
 
