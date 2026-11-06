@@ -1,838 +1,351 @@
 <!DOCTYPE html>
 <html lang="en-AU">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#FFFFFF">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Crewline">
+<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171B" media="(prefers-color-scheme: dark)">
 <title>Roster — Crewline</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/crewline.css">
 <style>
-  /* ============ Tokens — light theme spec ============ */
-  :root{
-    --paper:#FFFFFF;         /* background */
-    --docket:#FAF7F0;        /* cards, docket */
-    --ink:#1A1A1A;           /* body text */
-    --ink-2:#555555;         /* secondary text floor */
-    --steel:#3E4C59;         /* structure, headers */
-    --steel-line:#D8DEE4;    /* hairlines */
-    --amber:#B45309;         /* heat lamp: warnings, expiring, unfilled ONLY */
-    --amber-bg:#FDF3E7;
-    --red:#B3261E;           /* expired / blocking */
-    --red-bg:#FBEAE9;
-    --green:#166534;         /* published / confirmed */
-    --green-bg:#EAF4EC;
-    --radius:10px;
-    --font-ui:'Archivo',system-ui,sans-serif;
-    --font-docket:'IBM Plex Mono',ui-monospace,monospace;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{-webkit-text-size-adjust:100%}
-  body{
-    font-family:var(--font-ui);color:var(--ink);background:var(--paper);
-    font-size:16px;line-height:1.45;min-height:100vh;
-  }
-  button{font-family:inherit;font-size:inherit;cursor:pointer}
-  :focus-visible{outline:3px solid var(--steel);outline-offset:2px;border-radius:4px}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-
-  /* ============ Header ============ */
-  header{
-    display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-    padding:14px 20px;border-bottom:1px solid var(--steel-line);
-    position:sticky;top:0;background:var(--paper);z-index:20;
-  }
-  .brand{font-stretch:80%;font-weight:800;font-size:19px;letter-spacing:.02em;text-transform:uppercase;color:var(--steel)}
-  .brand small{display:block;font-weight:500;font-size:11px;letter-spacing:.14em;color:var(--ink-2);text-transform:uppercase}
-  .weeknav{display:flex;align-items:center;gap:8px;margin-left:auto}
-  .weeknav button{
-    background:var(--paper);border:1px solid var(--steel-line);border-radius:8px;
-    width:40px;height:40px;font-size:18px;color:var(--steel);
-  }
-  .weeknav button:hover{border-color:var(--steel)}
-  #weekLabel{font-family:var(--font-docket);font-weight:600;font-size:15px;min-width:150px;text-align:center}
-  .btn-publish{
-    background:var(--steel);color:#fff;border:none;border-radius:8px;
-    padding:11px 20px;font-weight:700;letter-spacing:.03em;
-  }
-  .btn-publish:hover{background:#2d3a45}
-  .demo-tag{
-    font-size:12px;font-weight:600;color:var(--amber);background:var(--amber-bg);
-    border:1px solid var(--amber);border-radius:99px;padding:3px 10px;display:none;
-  }
-
-  /* ============ Layout ============ */
-  .wrap{display:grid;grid-template-columns:1fr 300px;gap:20px;padding:20px;max-width:1280px;margin:0 auto}
-  @media(max-width:900px){.wrap{grid-template-columns:1fr;padding:12px;padding-bottom:120px}}
-
-  /* ============ Roster grid ============ */
-  .grid-scroll{overflow-x:auto;border:1px solid var(--steel-line);border-radius:var(--radius);background:var(--paper)}
-  table{border-collapse:collapse;width:100%;min-width:860px}
-  th,td{border-bottom:1px solid var(--steel-line);padding:0;vertical-align:top}
-  thead th{
-    background:var(--docket);padding:10px 8px;text-align:left;
-    font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--steel);
-    position:sticky;top:0;
-  }
-  thead th .daycost{display:block;font-family:var(--font-docket);font-weight:500;font-size:12px;color:var(--ink-2);letter-spacing:0;text-transform:none;margin-top:2px}
-  th.workercol,td.workercol{
-    min-width:150px;max-width:170px;background:var(--paper);
-    position:sticky;left:0;z-index:2;border-right:1px solid var(--steel-line);
-  }
-  td.workercol{padding:10px 10px}
-  .wname{font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px}
-  .wmeta{font-size:12.5px;color:var(--ink-2)}
-  .dot{width:9px;height:9px;border-radius:50%;flex:none}
-  .dot.ok{background:var(--green)} .dot.expiring{background:var(--amber)} .dot.expired{background:var(--red)}
-  td.cell{min-width:100px;padding:5px;cursor:pointer}
-  td.cell:hover{background:var(--docket)}
-  .shift{
-    background:var(--docket);border:1px solid var(--steel-line);border-left:3px solid var(--steel);
-    border-radius:7px;padding:6px 8px;margin-bottom:5px;position:relative;
-  }
-  .shift.published{border-left-color:var(--green)}
-  .shift .t{font-family:var(--font-docket);font-weight:600;font-size:13.5px}
-  .shift .r{font-size:12.5px;color:var(--ink-2)}
-  .shift .c{font-family:var(--font-docket);font-size:12.5px;color:var(--steel)}
-  .shift .x{
-    position:absolute;top:2px;right:4px;border:none;background:none;color:var(--ink-2);
-    font-size:15px;line-height:1;padding:4px;display:none;
-  }
-  .shift:hover .x{display:block}
-  .shift .x:hover{color:var(--red)}
-  .addhint{color:var(--steel-line);font-size:20px;text-align:center;display:block;padding:6px 0;user-select:none}
-  td.cell:hover .addhint{color:var(--steel)}
-
-  /* ============ THE DOCKET (signature) ============ */
-  .docket{
-    background:var(--docket);border:1px solid var(--steel-line);border-bottom:none;
-    font-family:var(--font-docket);font-size:14px;color:var(--ink);
-    padding:18px 18px 26px;position:sticky;top:84px;
-    /* serrated bottom edge, like a torn docket off the printer */
-    --serr:12px;
-    clip-path:polygon(0 0,100% 0,100% calc(100% - var(--serr)),
-      95% 100%,90% calc(100% - var(--serr)),85% 100%,80% calc(100% - var(--serr)),
-      75% 100%,70% calc(100% - var(--serr)),65% 100%,60% calc(100% - var(--serr)),
-      55% 100%,50% calc(100% - var(--serr)),45% 100%,40% calc(100% - var(--serr)),
-      35% 100%,30% calc(100% - var(--serr)),25% 100%,20% calc(100% - var(--serr)),
-      15% 100%,10% calc(100% - var(--serr)),5% 100%,0 calc(100% - var(--serr)));
-  }
-  .docket h2{
-    font-family:var(--font-ui);font-stretch:80%;font-weight:800;font-size:15px;
-    letter-spacing:.14em;text-transform:uppercase;color:var(--steel);text-align:center;
-  }
-  .docket .sub{text-align:center;font-size:12px;color:var(--ink-2);margin-bottom:10px}
-  .rule{border:none;border-top:1px dashed var(--steel);opacity:.4;margin:10px 0}
-  .dl{display:flex;justify-content:space-between;gap:8px;padding:2.5px 0}
-  .dl span:last-child{font-weight:600}
-  .dl.total{font-weight:600;font-size:16px}
-  .dl.grand{font-weight:600;font-size:19px;color:var(--steel)}
-  .flag{
-    font-family:var(--font-ui);font-size:13.5px;border-radius:7px;padding:8px 10px;margin-top:9px;
-  }
-  .flag.amber{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber)}
-  .flag.red{background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
-  .revline{display:flex;gap:8px;align-items:center;margin-top:10px;font-family:var(--font-ui);font-size:13.5px}
-  .revline input{
-    width:110px;font-family:var(--font-docket);font-size:15px;padding:7px 8px;
-    border:1px solid var(--steel-line);border-radius:7px;background:var(--paper);color:var(--ink);
-  }
-
-  /* Mobile docket summary bar */
-  .docketbar{display:none}
-  @media(max-width:900px){
-    .docket{position:static}
-    .docketbar{
-      display:flex;justify-content:space-between;align-items:center;gap:10px;
-      position:fixed;left:0;right:0;bottom:0;z-index:30;
-      background:var(--docket);border-top:2px solid var(--steel);
-      padding:12px 18px calc(12px + env(safe-area-inset-bottom));
-      font-family:var(--font-docket);
-    }
-    .docketbar b{font-size:19px;color:var(--steel)}
-    .docketbar span{font-size:13px;color:var(--ink-2)}
-  }
-
-  /* ============ Alerts panel ============ */
-  .alerts{margin-top:18px;background:var(--paper);border:1px solid var(--steel-line);border-radius:var(--radius);padding:14px 16px}
-  .alerts h3{font-stretch:80%;font-weight:800;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--steel);margin-bottom:8px}
-  .alert{display:flex;justify-content:space-between;gap:8px;font-size:14px;padding:6px 0;border-bottom:1px dashed var(--steel-line)}
-  .alert:last-child{border-bottom:none}
-  .alert .exp{font-family:var(--font-docket);font-size:13px}
-  .alert.expired .exp{color:var(--red);font-weight:600}
-  .alert.expiring .exp{color:var(--amber);font-weight:600}
-  .alerts .empty{color:var(--ink-2);font-size:14px}
-
-  /* Live attendance strip — the Telegram clock-in system */
-  .live-strip{margin:0 0 18px}
-  .live-strip h3{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .live-pill{font-family:var(--font-docket);font-size:12px;letter-spacing:0;text-transform:none;background:var(--green-bg);color:var(--green);border-radius:99px;padding:2px 10px;font-weight:600}
-  .live-pill.warn{background:var(--amber-bg);color:var(--amber)}
-  .live-link{margin-left:auto;font-family:var(--font-ui);font-size:12px;letter-spacing:.02em;text-transform:none;font-weight:600;color:var(--steel);text-decoration:none}
-  .live-link:hover{text-decoration:underline}
-  .live-rows{display:flex;flex-direction:column;gap:6px}
-  .live-row{display:flex;align-items:center;gap:12px;padding:9px 12px;background:var(--docket);border:1px solid var(--steel-line);border-radius:8px;font-size:14px;flex-wrap:wrap}
-  .live-row.flagged{background:var(--amber-bg);border-color:var(--amber)}
-  .live-row .ln{font-weight:700;min-width:110px}
-  .live-row .lm{color:var(--ink-2);font-size:12px;flex:1;min-width:140px}
-  .live-row .lt{font-family:var(--font-docket);font-weight:600;color:var(--green);font-size:13px}
-  .live-row.flagged .lt{color:var(--amber)}
-  .live-row button{border-radius:7px;padding:7px 12px;font-size:12px;font-weight:600;font-family:var(--font-docket);cursor:pointer}
-  .live-row button:disabled{opacity:.55;cursor:default}
-  .live-row .l-out{background:var(--paper);border:1px solid var(--steel-line);color:var(--steel)}
-  .live-row .l-out:hover{border-color:var(--steel)}
-  .live-row .l-ok{background:var(--green);border:none;color:#fff}
-  .live-row .l-cut{background:transparent;border:1px solid var(--red);color:var(--red)}
-
-  /* ============ Modal ============ */
-  dialog{
-    border:1px solid var(--steel-line);border-radius:14px;padding:0;
-    width:min(420px,92vw);color:var(--ink);
-  }
-  dialog::backdrop{background:rgba(26,26,26,.45)}
-  .mhead{background:var(--docket);padding:14px 18px;border-bottom:1px solid var(--steel-line)}
-  .mhead h3{font-stretch:80%;font-weight:800;font-size:16px;text-transform:uppercase;letter-spacing:.06em;color:var(--steel)}
-  .mbody{padding:16px 18px;display:grid;gap:12px}
-  .field label{display:block;font-size:13px;font-weight:700;color:var(--steel);margin-bottom:4px;letter-spacing:.04em}
-  .field input,.field select{
-    width:100%;font-family:var(--font-ui);font-size:16px;padding:10px;
-    border:1px solid var(--steel-line);border-radius:8px;background:var(--paper);color:var(--ink);
-  }
-  .trow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
-  .mfoot{display:flex;gap:10px;justify-content:flex-end;padding:14px 18px;border-top:1px solid var(--steel-line)}
-  .btn-ghost{background:var(--paper);border:1px solid var(--steel-line);border-radius:8px;padding:10px 16px;font-weight:600;color:var(--ink)}
-  .btn-primary{background:var(--steel);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-weight:700}
-  .guardnote{font-size:13.5px;border-radius:7px;padding:8px 10px;display:none}
-  .guardnote.red{display:block;background:var(--red-bg);color:var(--red);border:1px solid var(--red)}
-
-  /* wallet modal */
-  .cred{display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:8px 0;border-bottom:1px dashed var(--steel-line);font-size:14.5px}
-  .cred:last-child{border-bottom:none}
-  .cred .exp{font-family:var(--font-docket);font-size:13px;white-space:nowrap}
-  .cred.expired .exp{color:var(--red);font-weight:600}
-  .cred.expiring .exp{color:var(--amber);font-weight:600}
-  .cred .src{font-size:11.5px;color:var(--ink-2);display:block}
-  .wallet-empty{color:var(--ink-2);font-size:14px;padding:6px 0}
-  .addcred{border-top:1px solid var(--steel-line);margin-top:10px;padding-top:12px}
-  .addcred .trow{grid-template-columns:1.4fr 1fr}
-  .workercol{cursor:pointer}
-  td.workercol:hover .wname{text-decoration:underline;text-underline-offset:3px}
-
-  .enrolbtn{background:var(--paper);border:1px solid var(--steel);border-radius:99px;color:var(--steel);
-    font-size:12.5px;font-weight:700;padding:4px 12px;white-space:nowrap}
-  .enrolbtn:hover{background:var(--steel);color:#fff}
-  .toast{
-    position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:50;
-    background:var(--steel);color:#fff;border-radius:99px;padding:10px 20px;
-    font-weight:600;font-size:14.5px;display:none;
-  }
+  /* The week grid: scrolls sideways inside its own card, first column sticky. */
+  .gridwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: var(--radius); background: var(--docket); box-shadow: var(--shadow); }
+  table.roster { border-collapse: separate; border-spacing: 0; min-width: 100%; }
+  table.roster th, table.roster td { border-bottom: 1px solid var(--line); border-right: 1px solid var(--line-2); vertical-align: top; }
+  table.roster th { font-family: var(--font-docket); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); padding: 8px 6px 6px; text-align: left; background: var(--docket); position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+  table.roster th .dc { display: block; font-size: 11px; color: var(--ink); letter-spacing: 0; text-transform: none; font-weight: 700; margin-top: 2px; }
+  table.roster th.today { color: var(--ember); }
+  table.roster td.who, table.roster th.who { position: sticky; left: 0; z-index: 3; background: var(--docket); min-width: 112px; max-width: 132px; padding: 8px 8px; border-right: 1px solid var(--line); box-shadow: 4px 0 8px -6px rgba(0,0,0,.25); }
+  table.roster th.who { z-index: 4; }
+  table.roster td.who .nm { font-weight: 800; font-size: 13.5px; line-height: 1.2; display: flex; align-items: center; gap: 5px; }
+  table.roster td.who .meta { font-size: 11px; color: var(--ink-2); font-family: var(--font-docket); margin-top: 2px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: 0 0 auto; }
+  .dot.expiring { background: var(--amber); } .dot.expired { background: var(--red); }
+  table.roster td.cell { min-width: 108px; width: 108px; padding: 4px; cursor: pointer; }
+  table.roster td.cell:active { background: var(--docket-2); }
+  table.roster td.cell .add { display: block; text-align: center; color: var(--ink-3); font-size: 18px; line-height: 40px; }
+  .shift { background: var(--paper); border: 1px solid var(--line); border-left: 3px solid var(--steel); border-radius: 8px; padding: 5px 6px 4px; font-size: 12px; position: relative; margin-bottom: 4px; }
+  .shift.pub { border-left-color: var(--green); }
+  .shift.swap { border-left-color: var(--amber); background: var(--amber-bg); }
+  .shift.k { border-left-color: var(--ember); }
+  .shift .t { font-family: var(--font-docket); font-weight: 700; font-size: 11.5px; white-space: nowrap; }
+  .shift .r { color: var(--ink-2); font-size: 11px; }
+  .shift .c { font-family: var(--font-docket); font-size: 11px; color: var(--ink-2); margin-top: 1px; }
+  .shift .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); font-size: 12px; line-height: 1; display: none; }
+  .shift:hover .x, .shift:focus-within .x { display: block; }
+  .shift .st { font-size: 10px; margin-right: 3px; }
+  /* labour docket */
+  .dl { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-family: var(--font-docket); font-size: 14px; }
+  .dl.total { font-weight: 800; font-size: 17px; border-top: 2px solid var(--ink); margin-top: 6px; padding-top: 8px; }
+  .dl .muted { font-size: 12px; }
+  .alert { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 8px 0; border-top: 1px dashed var(--line); align-items: center; }
+  .alert:first-child { border-top: 0; }
+  .alert .exp { font-family: var(--font-docket); font-size: 12.5px; font-weight: 700; }
+  .alert.expired .exp { color: var(--red); } .alert.expiring .exp { color: var(--amber); }
+  .cred { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; padding: 8px 0; border-top: 1px dashed var(--line); font-size: 14px; }
+  .cred:first-child { border-top: 0; }
+  .cred .src { display: block; font-size: 11.5px; color: var(--ink-2); }
+  .cred .exp { font-family: var(--font-docket); font-size: 12.5px; white-space: nowrap; }
+  .cred.expired .exp { color: var(--red); font-weight: 700; } .cred.expiring .exp { color: var(--amber); font-weight: 700; }
+  .legend { display: flex; gap: 12px; font-size: 11.5px; color: var(--ink-2); margin-top: 8px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
 </style>
 </head>
 <body>
-
-<header>
-  <div class="brand">Crewline<small id="venueName">Roster</small></div>
-  <a href="/foodsafety" style="color:var(--steel);font-weight:700;text-decoration:none;border:1px solid var(--steel-line);border-radius:8px;padding:9px 14px">Food safety</a>
-  <span class="demo-tag" id="demoTag">Demo data — API not connected</span>
-  <div class="weeknav">
-    <button id="prevWeek" aria-label="Previous week">‹</button>
-    <span id="weekLabel"></span>
-    <button id="nextWeek" aria-label="Next week">›</button>
-  </div>
-  <button class="btn-ghost" id="addWorkerBtn" style="background:var(--paper);border:1px solid var(--steel-line);border-radius:8px;padding:10px 16px;font-weight:600;color:var(--ink)">+ Crew</button>
-  <button class="btn-publish" id="publishBtn">Publish roster</button>
-</header>
-
-<div class="wrap">
-  <main>
-    <section class="alerts live-strip" aria-labelledby="liveHead">
-      <h3 id="liveHead">Clocked in now <span class="live-pill" id="livePill">—</span><a class="live-link" href="/dashboard">Full dashboard ›</a></h3>
-      <div id="liveList"><span class="empty">Checking who's on…</span></div>
-    </section>
-
-    <div class="grid-scroll">
-      <table id="rosterTable" aria-label="Weekly roster">
-        <thead><tr id="headRow"></tr></thead>
-        <tbody id="bodyRows"></tbody>
-      </table>
-    </div>
-
-    <section class="alerts" aria-labelledby="alertsHead">
-      <h3 id="alertsHead">Credential wallet — expiring &amp; expired</h3>
-      <div id="alertList"><span class="empty">All credentials current.</span></div>
-    </section>
-
-    <section class="alerts" aria-labelledby="gapsHead">
-      <h3 id="gapsHead">Accredited training — gaps</h3>
-      <div id="gapList"><span class="empty">No required credentials configured yet.</span></div>
-    </section>
-  </main>
-
-  <aside>
-    <div class="docket" id="docket" aria-live="polite">
-      <h2>Labour Docket</h2>
-      <div class="sub" id="docketWeek"></div>
-      <hr class="rule">
-      <div id="docketDays"></div>
-      <hr class="rule">
-      <div class="dl total"><span>HOURS</span><span id="dHours">0.0</span></div>
-      <div class="dl"><span>Wages</span><span id="dWage">$0.00</span></div>
-      <div class="dl"><span>Super 12%</span><span id="dSuper">$0.00</span></div>
-      <hr class="rule">
-      <div class="dl grand"><span>TOTAL</span><span id="dTotal">$0.00</span></div>
-      <div class="revline">
-        <label for="revInput">Revenue $</label>
-        <input id="revInput" type="number" inputmode="decimal" placeholder="0">
-        <strong id="dPct" style="font-family:var(--font-docket)">–%</strong>
+<div class="lamp"></div>
+<div class="app cl-app">
+  <div class="topbar">
+    <div class="kicker"><span>ROSTER</span><span>·</span><span id="venueName">—</span><span class="demo-tag" id="demoTag">demo data</span></div>
+    <h1 id="title">This week</h1>
+    <div class="actions">
+      <div class="weeknav grow">
+        <button id="prevWeek" aria-label="Previous week">‹</button>
+        <div class="lbl" id="weekLabel"><small>Week</small>—</div>
+        <button id="nextWeek" aria-label="Next week">›</button>
       </div>
-      <div id="docketFlags"></div>
     </div>
-  </aside>
+  </div>
+
+  <div class="section" style="margin-top:14px">
+    <div class="hstack" style="justify-content:space-between">
+      <span class="pill ok" id="livePill">— on now</span>
+      <a href="#" id="todayLink" style="font-weight:700;font-size:13px;color:var(--ember);text-decoration:none">Today ›</a>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>The week <span class="spacer"></span><button class="link" id="addWorkerBtn" type="button">+ Crew</button></h2>
+    <div class="gridwrap"><table class="roster" aria-label="Weekly roster"><thead><tr id="headRow"></tr></thead><tbody id="bodyRows"></tbody></table></div>
+    <div class="legend"><span><i style="background:var(--steel)"></i>draft</span><span><i style="background:var(--green)"></i>published · ✓ confirmed</span><span><i style="background:var(--amber)"></i>swap asked</span><span>tap a cell to add a shift</span></div>
+    <div id="docketFlags"></div>
+  </div>
+
+  <div class="section">
+    <h2>Labour docket</h2>
+    <div class="card tear">
+      <div class="dl"><span>Hours</span><span id="dHours">0.0</span></div>
+      <div class="dl"><span>Hourly wages</span><span id="dWage">$0</span></div>
+      <div class="dl" id="dSalRow" style="display:none"><span>Salaries <span class="muted">(÷52)</span></span><span id="dSal">$0</span></div>
+      <div class="dl"><span>Super 12%</span><span id="dSuper">$0</span></div>
+      <div class="dl total"><span>Week</span><span id="dTotal">$0</span></div>
+      <div class="dl" id="dPctRow"><span class="muted">of revenue forecast</span><span id="dPct" class="muted">—</span></div>
+      <div class="hint" id="dHint">The Pay page has the budget, the actuals and the 152-hour cycle.</div>
+    </div>
+    <button class="btn primary block" id="publishBtn" type="button" style="margin-top:12px">Publish roster → Telegram</button>
+  </div>
+
+  <div class="section">
+    <h2>Credential wallet <span class="spacer"></span><span class="muted" style="letter-spacing:0;text-transform:none;font-family:var(--font-ui)">expiring &amp; expired</span></h2>
+    <div class="card" id="alertList"><span class="empty">All credentials current.</span></div>
+  </div>
+
+  <div class="section">
+    <h2>Training gaps</h2>
+    <div class="card" id="gapList"><span class="empty">No required credentials configured yet.</span></div>
+  </div>
 </div>
 
-<div class="docketbar" id="docketBar">
-  <div><span>Week labour</span><br><b id="dBarTotal">$0.00</b></div>
-  <div style="text-align:right"><span id="dBarHours">0.0 hrs</span><br><span id="dBarPct"></span></div>
-</div>
-
-<dialog id="shiftModal">
-  <form method="dialog" id="shiftForm">
-    <div class="mhead"><h3 id="modalTitle">Add shift</h3></div>
-    <div class="mbody">
-      <div class="field"><label for="fWorker">Worker</label><select id="fWorker" required></select></div>
-      <div class="trow">
-        <div class="field"><label for="fStart">Start</label><input id="fStart" type="time" value="09:00" required></div>
-        <div class="field"><label for="fEnd">Finish</label><input id="fEnd" type="time" value="17:00" required></div>
-        <div class="field"><label for="fBreak">Break min</label><input id="fBreak" type="number" value="30" min="0" step="5"></div>
-      </div>
-      <div class="field"><label for="fRole">Role (optional)</label><input id="fRole" type="text" placeholder="e.g. Pass, Larder, FOH"></div>
-      <div class="guardnote" id="guardNote"></div>
-    </div>
-    <div class="mfoot">
-      <button type="button" class="btn-ghost" id="cancelBtn">Cancel</button>
-      <button type="submit" class="btn-primary" id="saveShift">Save shift</button>
-    </div>
-  </form>
-</dialog>
-
-<dialog id="workerModal">
-  <form method="dialog" id="workerForm">
-    <div class="mhead"><h3 id="workerModalTitle">Add crew member</h3></div>
-    <div class="mbody">
-      <div class="field"><label for="wName">Name</label><input id="wName" type="text" required></div>
-      <div class="field"><label for="wPhone">Mobile number (the one they use on Telegram)</label>
-        <input id="wPhone" type="tel" inputmode="tel" required placeholder="614XXXXXXXX — international, no +">
-      </div>
-      <div class="field"><label for="wRole">Access</label>
-        <select id="wRole"><option value="staff">Staff</option><option value="manager">Manager — gets swap requests, can open the dashboard</option><option value="owner">Owner</option></select>
-      </div>
-      <div class="trow" style="grid-template-columns:1fr 1fr">
-        <div class="field"><label for="wType">Employment</label>
-          <select id="wType"><option value="casual">Casual</option><option value="parttime">Part-time</option><option value="fulltime">Full-time</option></select></div>
-        <div class="field"><label for="wAward">Award</label><select id="wAward"></select></div>
-      </div>
-      <div class="field"><label for="wLevel">Classification level</label><select id="wLevel"></select></div>
-      <div class="guardnote" id="workerNote"></div>
-    </div>
-    <div class="mfoot">
-      <button type="button" class="btn-ghost" id="workerDeactivate" style="margin-right:auto;color:var(--red);border-color:var(--red);display:none">Deactivate</button>
-      <button type="button" class="btn-ghost" id="workerCancel">Cancel</button>
-      <button type="submit" class="btn-primary" id="workerSave">Save</button>
-    </div>
-  </form>
-</dialog>
-
-<dialog id="walletModal">
-  <div class="mhead"><h3 id="walletTitle">Wallet</h3></div>
-  <div class="mbody">
-    <div id="credList"></div>
-    <form class="addcred" id="credForm">
-      <div class="trow" style="margin-bottom:10px">
-        <div class="field"><label for="cType">Add credential</label>
-          <select id="cType" required></select></div>
-        <div class="field"><label for="cExpiry">Expiry</label>
-          <input id="cExpiry" type="date" required></div>
-      </div>
-      <div class="field"><label for="cNumber">Number (optional)</label>
-        <input id="cNumber" type="text" inputmode="text" placeholder="Card / licence no."></div>
-    </form>
-    <p style="font-size:13px;color:var(--ink-2);margin-top:10px">Crew can also file these themselves — they just send a photo of the card to the Telegram bot.</p>
-  </div>
-  <div class="mfoot">
-    <button type="button" class="btn-ghost" id="walletEditWorker" style="margin-right:auto">Edit details</button>
-    <button type="button" class="btn-ghost" id="walletClose">Close</button>
-    <button type="submit" form="credForm" class="btn-primary">Save credential</button>
-  </div>
-</dialog>
-
-<div class="toast" id="toast" role="status"></div>
-
+<script src="/static/crewline.js"></script>
 <script>
-/* =====================================================================
-   Crewline — Roster dashboard
-   Talks to /api/* (core-os-routes.js). If the API is unreachable it
-   drops to demo mode with sample data so the page always works.
-===================================================================== */
+const $ = (id) => document.getElementById(id);
+const E = CL.esc;
 const API = "/api/core";
-let KEY = new URLSearchParams(location.search).get("key") || localStorage.getItem("dwos_key") || "";
-if (KEY) localStorage.setItem("dwos_key", KEY);
-function api(path){ return API + path + (path.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(KEY); }
 let DEMO = false;
-let weekStart = mondayOf(new Date());
-let workers = [], shifts = [], costing = null, pendingCell = null;
+let weekStart = CL.mondayOf(CL.today());
+let workers = [], shifts = [], costing = null, payWeek = null;
+const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-const DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-
-/* ---------- demo fallback (mirror of server maths, L1/L3 only) ---------- */
+/* ---------- demo fallback (no Firestore) ---------- */
 const DEMO_WORKERS = [
-  {id:"w1", name:"Aarav S.",  employmentType:"casual",   level:"L1", credentialStatus:"ok"},
-  {id:"w2", name:"Maria G.",  employmentType:"fulltime", level:"L3", credentialStatus:"expiring"},
-  {id:"w3", name:"Binod T.",  employmentType:"casual",   level:"L1", credentialStatus:"expired"},
-  {id:"w4", name:"Jess K.",   employmentType:"parttime", level:"L2", credentialStatus:"ok"},
+  { id: "w1", name: "Aarav S.", employmentType: "casual", level: "L1", department: "kitchen", credentialStatus: "ok" },
+  { id: "w2", name: "Maria G.", employmentType: "fulltime", level: "L3", department: "kitchen", credentialStatus: "expiring" },
+  { id: "w3", name: "Binod T.", employmentType: "casual", level: "L1", department: "service", credentialStatus: "expired" },
+  { id: "w4", name: "Jess K.", employmentType: "parttime", level: "L2", department: "service", credentialStatus: "ok" },
 ];
-const DEMO_RATES = {INTRO:25.85,L1:26.44,L2:26.95,L3:27.34,L4:28.80,L5:30.61,L6:31.41};
-const DEMO_ALERTS = [
-  {worker:"Maria G.", credential:"Visa / right to work", expiryDate:addDays(todayStr(),21), status:"expiring"},
-  {worker:"Binod T.", credential:"RSA / RCG", expiryDate:addDays(todayStr(),-6), status:"expired"},
-];
-function demoCost(s, w){
-  const mult = {weekday:{p:1,c:1.25},saturday:{p:1.25,c:1.5},sunday:{p:1.5,c:1.75}};
-  const d = new Date(s.date+"T12:00:00").getDay();
-  const type = d===6?"saturday":d===0?"sunday":"weekday";
-  const isC = w.employmentType==="casual";
-  let mins = toMin(s.end)-toMin(s.start); if(mins<=0) mins+=1440;
-  const hrs = Math.max(0,(mins-(s.unpaidBreakMins||0)))/60;
-  const wage = hrs * DEMO_RATES[w.level] * mult[type][isC?"c":"p"];
-  return {hours:r2(hrs), wageCost:r2(wage), superCost:r2(wage*.12), totalCost:r2(wage*1.12), dayType:type};
+const DEMO_RATES = { INTRO: 25.85, L1: 26.44, L2: 26.95, L3: 27.34, L4: 28.80, L5: 30.61, L6: 31.41 };
+function demoCost(s, w) {
+  const mult = { weekday: { p: 1, c: 1.25 }, saturday: { p: 1.25, c: 1.5 }, sunday: { p: 1.5, c: 1.75 } };
+  const d = new Date(s.date + "T12:00:00").getDay(); const type = d === 6 ? "saturday" : d === 0 ? "sunday" : "weekday";
+  let mins = toMin(s.end) - toMin(s.start); if (mins <= 0) mins += 1440;
+  const hrs = Math.max(0, mins - (s.unpaidBreakMins || 0)) / 60;
+  const wage = hrs * DEMO_RATES[w.level] * mult[type][w.employmentType === "casual" ? "c" : "p"];
+  return { hours: r2(hrs), wageCost: r2(wage), superCost: r2(wage * .12), totalCost: r2(wage * 1.12) };
+}
+function seedDemo() {
+  const s = []; let n = 0;
+  const add = (w, off, st, en, role) => s.push({ id: "d" + (n++), workerId: w, date: CL.addDays(weekStart, off), start: st, end: en, unpaidBreakMins: 30, role, published: off < 2, confirmedAt: off === 0 ? "x" : null });
+  add("w1", 0, "10:00", "18:30", "Larder"); add("w1", 4, "15:00", "23:30", "Pass");
+  add("w2", 0, "07:00", "15:30", "Pass"); add("w2", 1, "07:00", "15:30", "Pass"); add("w2", 5, "08:00", "16:30", "Pass");
+  add("w3", 5, "11:00", "21:00", "Bar"); add("w4", 2, "09:00", "14:00", "FOH");
+  return s;
+}
+function demoRosterCost() {
+  const byId = Object.fromEntries(workers.map((w) => [w.id, w]));
+  const lines = shifts.map((s) => ({ ...demoCost(s, byId[s.workerId]), shiftId: s.id, date: s.date, workerId: s.workerId }));
+  const wage = r2(lines.reduce((t, l) => t + l.wageCost, 0)), sup = r2(wage * .12);
+  return { lines, totals: { hours: r2(lines.reduce((t, l) => t + l.hours, 0)), wage, super: sup, total: r2(wage + sup), salaries: 0, salariesSuper: 0 }, weeklyOTFlags: [], hasUnverifiedRates: true };
 }
 
 /* ---------- data ---------- */
-async function load(retried){
-  try{
-    const [rRes,wRes,aRes] = await Promise.all([
-      fetch(api(`/roster?weekStart=${weekStart}`)),
-      fetch(api(`/workers`)),
-      fetch(api(`/wallet-alerts`))
-    ]);
-    if((rRes.status===401||wRes.status===401) && !retried){
-      const entered = prompt("Enter your manager dashboard key");
-      if(entered){ KEY = entered; localStorage.setItem("dwos_key", KEY); return load(true); }
-      throw new Error("no key");
-    }
-    if(!rRes.ok||!wRes.ok) throw new Error("api");
-    if(!window._venueNamed){ window._venueNamed=true; fetch("/api/me?key="+encodeURIComponent(KEY)).then(x=>x.ok?x.json():null).then(me=>{ if(me&&me.name) document.getElementById("venueName").textContent=me.name; }).catch(()=>{}); }
-    const r = await rRes.json();
-    workers = (await wRes.json()).workers;
-    shifts = r.shifts; costing = r.costing;
-    renderAlerts(aRes.ok ? (await aRes.json()).alerts : []);
-  }catch(e){
-    DEMO = true;
-    document.getElementById("demoTag").style.display="inline-block";
-    workers = DEMO_WORKERS;
-    if(!shifts.demoSeeded){
-      shifts = seedDemoShifts(); shifts.demoSeeded=true;
-    }
-    costing = demoRosterCost();
-    renderAlerts(DEMO_ALERTS);
+async function load() {
+  try {
+    const [r, w, a] = await Promise.all([CL.api(`${API}/roster?weekStart=${weekStart}`), CL.api(`${API}/workers`), CL.api(`${API}/wallet-alerts`).catch(() => ({ alerts: [] }))]);
+    workers = w.workers; shifts = r.shifts; costing = r.costing; DEMO = false;
+    renderAlerts(a.alerts || []);
+  } catch (e) {
+    if (e.status === 401) return;
+    DEMO = true; $("demoTag").style.display = "inline-block";
+    workers = DEMO_WORKERS; if (!shifts.demo) { shifts = seedDemo(); shifts.demo = true; } costing = demoRosterCost();
+    renderAlerts([{ worker: "Maria G.", credential: "Visa / right to work", expiryDate: CL.addDays(CL.today(), 21), status: "expiring" }, { worker: "Binod T.", credential: "RSA / RCG", expiryDate: CL.addDays(CL.today(), -6), status: "expired" }]);
   }
-  render();
-  loadGaps();
+  render(); loadGaps(); loadPay();
 }
-function seedDemoShifts(){
-  const s=[]; let n=0;
-  const add=(w,off,st,en,role)=>s.push({id:"d"+(n++),workerId:w,date:addDays(weekStart,off),start:st,end:en,unpaidBreakMins:30,role,published:off<2});
-  add("w1",0,"10:00","18:30","Larder"); add("w1",4,"15:00","23:30","Pass");
-  add("w2",0,"07:00","15:30","Pass");   add("w2",1,"07:00","15:30","Pass"); add("w2",5,"08:00","16:30","Pass");
-  add("w3",5,"11:00","21:00","Grill");  add("w4",2,"09:00","14:00","FOH");
-  return s;
-}
-function demoRosterCost(){
-  const byId=Object.fromEntries(workers.map(w=>[w.id,w]));
-  const lines=shifts.filter(x=>x.id).map(s=>({...demoCost(s,byId[s.workerId]),shiftId:s.id,date:s.date}));
-  const wage=r2(lines.reduce((t,l)=>t+l.wageCost,0));
-  const sup=r2(lines.reduce((t,l)=>t+l.superCost,0));
-  return {lines,totals:{hours:r2(lines.reduce((t,l)=>t+l.hours,0)),wage,super:sup,total:r2(wage+sup)},weeklyOTFlags:[],hasUnverifiedRates:true};
+async function loadPay() {
+  try { payWeek = await CL.api(`/api/pay/week?start=${weekStart}`); } catch { payWeek = null; }
+  renderDocket();
 }
 
 /* ---------- render ---------- */
-function render(){
-  document.getElementById("weekLabel").textContent =
-    fmt(weekStart)+" – "+fmt(addDays(weekStart,6));
-  document.getElementById("docketWeek").textContent =
-    "WEEK "+fmt(weekStart).toUpperCase()+" · "+workers.length+" ON CREW";
-
-  // header row
-  const costByDate={};
-  (costing?.lines||[]).forEach(l=>{costByDate[l.date]=(costByDate[l.date]||0)+l.totalCost;});
-  let h='<th class="workercol">Crew</th>';
-  for(let i=0;i<7;i++){
-    const d=addDays(weekStart,i);
-    h+=`<th>${DAYS[i]} ${d.slice(8)}<span class="daycost">${costByDate[d]?"$"+costByDate[d].toFixed(0):"—"}</span></th>`;
-  }
-  document.getElementById("headRow").innerHTML=h;
-
-  // body
-  const costByShift={};
-  (costing?.lines||[]).forEach(l=>costByShift[l.shiftId]=l);
-  let b="";
-  for(const w of workers){
-    b+=`<tr><td class="workercol">
-      <div class="wname"><span class="dot ${w.credentialStatus||"ok"}" title="Credentials: ${w.credentialStatus||"ok"}"></span>${esc(w.name)}</div>
-      <div class="wmeta">${w.level} · ${etLabel(w.employmentType)}${w.awardCode&&w.awardCode!=="MA000009"?" · "+esc((AWARDS.find(a=>a.code===w.awardCode)||{name:w.awardCode}).name):""}</div></td>`;
-    for(let i=0;i<7;i++){
-      const d=addDays(weekStart,i);
-      const cell=shifts.filter(s=>s.workerId===w.id&&s.date===d);
-      b+=`<td class="cell" data-worker="${w.id}" data-date="${d}" tabindex="0" aria-label="Add shift for ${esc(w.name)} ${DAYS[i]}">`;
-      for(const s of cell){
-        const c=costByShift[s.id];
-        b+=`<div class="shift ${s.published?"published":""}">
-          <button class="x" data-del="${s.id}" aria-label="Remove shift">×</button>
-          <div class="t">${s.start}–${s.end}</div>
-          ${s.role?`<div class="r">${esc(s.role)}</div>`:""}
-          <div class="c">${c?"$"+c.totalCost.toFixed(2):""}</div></div>`;
-      }
-      b+=`<span class="addhint">+</span></td>`;
+function render() {
+  const today = CL.today();
+  $("title").textContent = today >= weekStart && today <= CL.addDays(weekStart, 6) ? "This week" : weekStart > today ? "Next week" : "Past week";
+  $("weekLabel").innerHTML = `<small>Week</small>${CL.range(weekStart, CL.addDays(weekStart, 6))}`;
+  const costByDate = {}, costByShift = {};
+  (costing?.lines || []).forEach((l) => { costByDate[l.date] = (costByDate[l.date] || 0) + l.totalCost; costByShift[l.shiftId] = l; });
+  let h = '<th class="who">Crew</th>';
+  for (let i = 0; i < 7; i++) { const d = CL.addDays(weekStart, i); h += `<th class="${d === today ? "today" : ""}">${DAYS[i]} ${Number(d.slice(8))}<span class="dc">${costByDate[d] ? "$" + Math.round(costByDate[d]) : "·"}</span></th>`; }
+  $("headRow").innerHTML = h;
+  const salaried = (w) => w.employmentType === "fulltime" && w.payType === "salary";
+  $("bodyRows").innerHTML = workers.map((w) => {
+    let row = `<td class="who" data-w="${E(w.id)}"><div class="nm"><span class="dot ${w.credentialStatus || "ok"}"></span><span class="ellipsis">${E(w.name)}</span></div><div class="meta">${salaried(w) ? "salary" : (w.level || "—") + " · " + etShort(w.employmentType)}${w.department ? " · " + w.department.slice(0, 3) : ""}</div></td>`;
+    for (let i = 0; i < 7; i++) {
+      const d = CL.addDays(weekStart, i);
+      const cell = shifts.filter((s) => s.workerId === w.id && s.date === d);
+      row += `<td class="cell" data-w="${E(w.id)}" data-d="${d}">` + cell.map((s) => {
+        const c = costByShift[s.id];
+        const cls = s.swapRequestedAt ? "swap" : s.published ? "pub" : "";
+        return `<div class="shift ${cls} ${w.department === "kitchen" ? "k" : ""}"><button class="x" data-del="${E(s.id)}" type="button" aria-label="Remove">✕</button>
+          <div class="t">${s.confirmedAt ? '<span class="st" title="Confirmed">✓</span>' : s.swapRequestedAt ? '<span class="st" title="Swap requested">⇄</span>' : ""}${s.start}–${s.end}</div>${s.role ? `<div class="r ellipsis">${E(s.role)}</div>` : ""}
+          <div class="c">${c ? (c.salary || salaried(w) ? "salary" : "$" + Math.round(c.totalCost)) : ""}</div></div>`;
+      }).join("") + `<span class="add">+</span></td>`;
     }
-    b+="</tr>";
-  }
-  document.getElementById("bodyRows").innerHTML=b;
+    return `<tr>${row}</tr>`;
+  }).join("") || `<tr><td class="who" colspan="8"><div class="empty">No crew yet — tap + Crew.</div></td></tr>`;
 
-  // docket
-  let dd="";
-  for(let i=0;i<7;i++){
-    const d=addDays(weekStart,i);
-    dd+=`<div class="dl"><span>${DAYS[i]} ${d.slice(8)}</span><span>${costByDate[d]?"$"+costByDate[d].toFixed(2):"—"}</span></div>`;
-  }
-  document.getElementById("docketDays").innerHTML=dd;
-  const t=costing?.totals||{hours:0,wage:0,super:0,total:0};
-  set("dHours",t.hours.toFixed(1)); set("dWage","$"+t.wage.toFixed(2));
-  set("dSuper","$"+t.super.toFixed(2)); set("dTotal","$"+t.total.toFixed(2));
-  set("dBarTotal","$"+t.total.toFixed(2)); set("dBarHours",t.hours.toFixed(1)+" hrs");
-  updatePct();
-
-  let flags="";
-  for(const f of (costing?.weeklyOTFlags||[])){
-    const w=workers.find(x=>x.id===f.workerId);
-    flags+=`<div class="flag amber">⚠ ${esc(w?w.name:f.workerId)} rostered ${f.weeklyHours} hrs — over ${f.threshold} hr ordinary week. Overtime applies.</div>`;
-  }
-  if(costing?.hasUnverifiedRates)
-    flags+=`<div class="flag amber">⚠ Some pay rates are estimates — verify against the current Fair Work pay guide before pay run.</div>`;
-  document.getElementById("docketFlags").innerHTML=flags;
+  let flags = "";
+  for (const f of (costing?.weeklyOTFlags || [])) { const w = workers.find((x) => x.id === f.workerId); if (w && w.employmentType !== "fulltime") flags += `<div class="flag warn">${E(w.name)} rostered ${f.weeklyHours} h — over 38 in a week. Overtime applies.</div>`; }
+  $("docketFlags").innerHTML = flags;
+  renderDocket();
+}
+function renderDocket() {
+  const t = costing?.totals || { hours: 0, wage: 0, super: 0, total: 0, salaries: 0, salariesSuper: 0 };
+  const sal = t.salaries || 0;
+  $("dHours").textContent = CL.hrs(t.hours); $("dWage").textContent = CL.money(t.wage);
+  $("dSalRow").style.display = sal ? "" : "none"; $("dSal").textContent = CL.money(sal);
+  const sup = (t.super || 0) + (t.salariesSuper || 0);
+  $("dSuper").textContent = CL.money(sup);
+  $("dTotal").textContent = CL.money(t.wage + sal + sup);
+  if (payWeek && payWeek.totals.expectedRevenue > 0) {
+    const pct = ((t.wage + sal) / payWeek.totals.expectedRevenue) * 100;
+    const st = pct <= payWeek.settings.targets.totalPct ? "ok" : pct <= payWeek.settings.targets.totalPct + 3 ? "warn" : "over";
+    $("dPct").innerHTML = `<span class="pill ${st}">${CL.pct(pct)} of ${CL.money(payWeek.totals.expectedRevenue)}</span>`;
+    $("dHint").textContent = `Budget is ${payWeek.settings.targets.totalPct}% (${CL.money(payWeek.totals.budget)}). Wages before super. The Pay page has actuals and the 152-hour cycle.`;
+  } else { $("dPct").textContent = "—"; $("dHint").innerHTML = `Set a revenue forecast on the <a href="${CL.url("/pay")}">Pay page</a> to see this as a %.`; }
+  if (costing?.hasUnverifiedRates && !DEMO) $("docketFlags").insertAdjacentHTML("beforeend", `<div class="flag info">Some award rates are 2026/27 estimates — check fairwork.gov.au before the first pay run.</div>`);
 }
 
-async function loadGaps(){
-  const el=document.getElementById("gapList");
-  if(DEMO){
-    el.innerHTML=renderGapRows([
-      {worker:"Binod T.", credential:"RSA / RCG", status:"expired", courseId:"rsa", workerId:"w3", phone:"6140000000"},
-      {worker:"Jess K.", credential:"Food Safety Supervisor", status:"missing", courseId:"fss", workerId:"w4", phone:"6140000001"},
-    ]);
-    return;
-  }
-  try{
-    const r=await fetch(api("/training-gaps")); if(!r.ok) throw 0;
-    const j=await r.json();
-    if(!j.required.length){ el.innerHTML='<span class="empty">No required credentials configured — set them via PUT /api/core/training-settings.</span>'; return; }
-    el.innerHTML=j.gaps.length?renderGapRows(j.gaps):'<span class="empty">Everyone holds the required credentials. ✅</span>';
-  }catch(e){ el.innerHTML='<span class="empty">Couldn\u2019t load gaps.</span>'; }
+/* ---------- alerts & gaps ---------- */
+function renderAlerts(alerts) {
+  $("alertList").innerHTML = alerts && alerts.length ? alerts.map((a) => `<div class="alert ${a.status}"><span><b>${E(a.worker)}</b> — ${E(a.credential)}</span><span class="exp">${a.status === "expired" ? "expired " : "exp "}${CL.dayNum(a.expiryDate)}</span></div>`).join("") : '<span class="empty">All credentials current.</span>';
 }
-function renderGapRows(gaps){
-  return gaps.map(g=>`
-    <div class="alert ${g.status==="expired"?"expired":"expiring"}">
-      <span><strong>${esc(g.worker)}</strong> — ${esc(g.credential)} <span class="exp">${g.status}</span></span>
-      ${g.courseId&&g.phone?`<button class="enrolbtn" data-enrol="${g.courseId}" data-worker="${g.workerId}">Send enrol link</button>`:""}
-    </div>`).join("");
+async function loadGaps() {
+  const el = $("gapList");
+  if (DEMO) { el.innerHTML = gapRows([{ worker: "Binod T.", credential: "RSA / RCG", status: "expired", courseId: "rsa", workerId: "w3", phone: "x" }]); return; }
+  try {
+    const j = await CL.api(`${API}/training-gaps`);
+    if (!j.required.length) { el.innerHTML = '<span class="empty">No required credentials configured.</span>'; return; }
+    el.innerHTML = j.gaps.length ? gapRows(j.gaps) : '<span class="empty">Everyone holds the required credentials ✓</span>';
+  } catch { el.innerHTML = '<span class="empty">Couldn’t load gaps.</span>'; }
 }
-document.getElementById("gapList").addEventListener("click",async e=>{
-  const b=e.target.closest("[data-enrol]"); if(!b) return;
-  if(DEMO){ toast("Demo: enrol link would be sent on Telegram"); return; }
-  b.disabled=true;
-  const r=await fetch(api("/send-enrol"),{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({workerId:b.dataset.worker,courseId:b.dataset.enrol})});
-  toast(r.ok?"Enrol link sent on Telegram":"Send failed — check the worker has a number"); b.disabled=false;
+function gapRows(gaps) {
+  return gaps.map((g) => `<div class="alert ${g.status === "expired" ? "expired" : "expiring"}"><span><b>${E(g.worker)}</b> — ${E(g.credential)} <span class="exp">${g.status}</span></span>${g.courseId && g.phone ? `<button class="btn sm" data-enrol="${E(g.courseId)}" data-worker="${E(g.workerId)}" type="button">Send enrol link</button>` : ""}</div>`).join("");
+}
+$("gapList").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-enrol]"); if (!b) return;
+  if (DEMO) { CL.toast("Demo: enrol link would be sent on Telegram"); return; }
+  b.disabled = true;
+  try { await CL.api(`${API}/send-enrol`, { method: "POST", body: { workerId: b.dataset.worker, courseId: b.dataset.enrol } }); CL.toast("Enrol link sent on Telegram"); } catch (err) { CL.toast(err.message); }
+  b.disabled = false;
 });
-
-function renderAlerts(alerts){
-  const el=document.getElementById("alertList");
-  if(!alerts||!alerts.length){el.innerHTML='<span class="empty">All credentials current.</span>';return;}
-  el.innerHTML=alerts.map(a=>`
-    <div class="alert ${a.status}">
-      <span><strong>${esc(a.worker)}</strong> — ${esc(a.credential)}</span>
-      <span class="exp">${a.status==="expired"?"expired ":"exp "}${fmt(a.expiryDate)}</span>
-    </div>`).join("");
-}
-
-function updatePct(){
-  const rev=parseFloat(document.getElementById("revInput").value);
-  const total=costing?.totals?.total||0;
-  const pct=(rev>0)?((total/rev)*100).toFixed(1)+"%":"–%";
-  set("dPct",pct); set("dBarPct",rev>0?pct+" of revenue":"");
-}
 
 /* ---------- actions ---------- */
-document.getElementById("bodyRows").addEventListener("click",async e=>{
-  const del=e.target.closest("[data-del]");
-  if(del){
-    if(!confirm("Remove this shift? A record is kept in the audit trail.")) return;
-    if(DEMO){shifts=shifts.filter(s=>s.id!==del.dataset.del);costing=demoRosterCost();render();}
-    else{await fetch(api(`/roster/shift/${del.dataset.del}`),{method:"DELETE"});await load();}
-    toast("Shift removed");
-    return;
+$("bodyRows").addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    e.stopPropagation();
+    if (!CL.confirm("Remove this shift? A record is kept in the audit trail.")) return;
+    if (DEMO) { shifts = shifts.filter((s) => s.id !== del.dataset.del); shifts.demo = true; costing = demoRosterCost(); render(); }
+    else { await CL.api(`${API}/roster/shift/${del.dataset.del}`, { method: "DELETE" }); await load(); }
+    CL.toast("Shift removed"); return;
   }
-  const cell=e.target.closest("td.cell");
-  if(cell) openModal(cell.dataset.worker,cell.dataset.date);
-});
-document.getElementById("bodyRows").addEventListener("keydown",e=>{
-  const cell=e.target.closest("td.cell");
-  if(cell&&(e.key==="Enter"||e.key===" ")){e.preventDefault();openModal(cell.dataset.worker,cell.dataset.date);}
+  const who = e.target.closest("td.who");
+  if (who) { const w = workers.find((x) => x.id === who.dataset.w); if (w) openWallet(w); return; }
+  const cell = e.target.closest("td.cell");
+  if (cell) shiftSheet(cell.dataset.w, cell.dataset.d);
 });
 
-function openModal(workerId,date){
-  pendingCell={workerId,date};
-  const sel=document.getElementById("fWorker");
-  sel.innerHTML=workers.map(w=>`<option value="${w.id}" ${w.id===workerId?"selected":""}>${esc(w.name)} (${w.level||"—"})</option>`).join("");
-  document.getElementById("modalTitle").textContent="Add shift — "+fmt(date);
-  document.getElementById("guardNote").className="guardnote";
-  document.getElementById("shiftModal").showModal();
-}
-document.getElementById("cancelBtn").onclick=()=>document.getElementById("shiftModal").close();
-
-document.getElementById("shiftForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const body={
-    workerId:document.getElementById("fWorker").value,
-    date:pendingCell.date,
-    start:document.getElementById("fStart").value,
-    end:document.getElementById("fEnd").value,
-    unpaidBreakMins:parseInt(document.getElementById("fBreak").value)||0,
-    role:document.getElementById("fRole").value||null,
+function shiftSheet(workerId, date) {
+  const el = CL.makeSheet({ id: "shift-sheet", title: `Add shift — ${CL.dayLong(date)}`, body: `
+      <label class="field"><span class="lbl">Who</span><select id="f-worker">${workers.map((w) => `<option value="${E(w.id)}" ${w.id === workerId ? "selected" : ""}>${E(w.name)} (${w.level || "—"})</option>`).join("")}</select></label>
+      <div class="frow3">
+        <label class="field"><span class="lbl">Start</span><input id="f-start" type="time" value="09:00"></label>
+        <label class="field"><span class="lbl">Finish</span><input id="f-end" type="time" value="17:00"></label>
+        <label class="field"><span class="lbl">Break min</span><input id="f-break" type="number" inputmode="numeric" value="30" min="0" step="5"></label>
+      </div>
+      <div class="seg" id="f-presets" style="margin-bottom:12px"><button type="button" data-s="06:00" data-e="14:00">AM</button><button type="button" data-s="10:00" data-e="18:00">Mid</button><button type="button" data-s="15:00" data-e="23:00">PM</button><button type="button" data-s="17:00" data-e="01:00">Late</button></div>
+      <label class="field"><span class="lbl">Role (optional)</span><input id="f-role" type="text" placeholder="e.g. Pass, Larder, Bar, FOH"></label>
+      <div id="f-guard"></div><p class="err" id="f-err"></p>`, foot: `<button class="btn primary" id="f-save" type="button">Save shift</button>` });
+  const q = (id) => el.querySelector("#" + id);
+  el.querySelectorAll("#f-presets button").forEach((b) => (b.onclick = () => { q("f-start").value = b.dataset.s; q("f-end").value = b.dataset.e; }));
+  const s = CL.sheet("shift-sheet"); s.open();
+  q("f-save").onclick = async (ev, override) => {
+    const body = { workerId: q("f-worker").value, date, start: q("f-start").value, end: q("f-end").value, unpaidBreakMins: parseInt(q("f-break").value) || 0, role: q("f-role").value || null, ...(override ? { overrideGuard: true } : {}) };
+    if (!body.start || !body.end) { q("f-err").textContent = "Start and finish are needed."; return; }
+    if (DEMO) { shifts.push({ id: "d" + Date.now(), ...body, published: false }); shifts.demo = true; costing = demoRosterCost(); s.close(); render(); CL.toast("Shift saved (demo)"); return; }
+    try { await CL.api(`${API}/roster/shift`, { method: "POST", body }); s.close(); await load(); CL.toast("Shift saved"); }
+    catch (e) {
+      if (e.status === 409 && e.body && e.body.warnings) {
+        q("f-guard").innerHTML = `<div class="flag over">${e.body.warnings.map((w) => `${E(w.credential)} expired ${CL.dayNum(w.expired)}`).join("; ")}</div><button class="btn block" id="f-override" type="button" style="margin:8px 0">Roster anyway (logged)</button>`;
+        q("f-override").onclick = () => q("f-save").onclick(null, true);
+      } else q("f-err").textContent = e.message;
+    }
   };
-  if(DEMO){
-    shifts.push({id:"d"+Date.now(),...body,published:false});
-    costing=demoRosterCost();
-    document.getElementById("shiftModal").close(); render(); toast("Shift saved");
-    return;
-  }
-  const res=await fetch(api(`/roster/shift`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  if(res.status===409){
-    const j=await res.json();
-    const g=document.getElementById("guardNote");
-    g.className="guardnote red";
-    g.innerHTML="🛑 "+j.warnings.map(w=>`${w.credential} expired ${fmt(w.expired)}`).join("; ")+
-      '<br><button type="button" class="btn-ghost" style="margin-top:8px" id="overrideBtn">Roster anyway (logged)</button>';
-    document.getElementById("overrideBtn").onclick=async()=>{
-      await fetch(api(`/roster/shift`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...body,overrideGuard:true})});
-      document.getElementById("shiftModal").close(); await load(); toast("Shift saved with override — logged");
-    };
-    return;
-  }
-  document.getElementById("shiftModal").close(); await load(); toast("Shift saved");
-});
+}
 
-document.getElementById("publishBtn").onclick=async()=>{
-  if(DEMO){shifts.forEach(s=>s.published=true);render();toast("Demo: roster marked published");return;}
-  const res=await fetch(api(`/roster/publish`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({weekStart})});
-  const j=await res.json();
-  await load();
-  toast(res.ok?`Roster published — ${j.workersNotified}/${j.workersOnRoster} sent on Telegram${j.unreachable&&j.unreachable.length?`. Not yet reachable (they need to message the bot once): ${j.unreachable.join(", ")}`:""}`:"Publish failed: "+j.error);
+$("publishBtn").onclick = async () => {
+  if (DEMO) { shifts.forEach((s) => (s.published = true)); render(); CL.toast("Demo: roster marked published"); return; }
+  $("publishBtn").disabled = true;
+  try {
+    const j = await CL.api(`${API}/roster/publish`, { method: "POST", body: { weekStart } });
+    await load();
+    CL.toast(`Published — ${j.workersNotified}/${j.workersOnRoster} sent on Telegram${j.unreachable && j.unreachable.length ? `. Not yet reachable: ${j.unreachable.join(", ")}` : ""}`, 6000);
+  } catch (e) { CL.toast("Publish failed: " + e.message); }
+  $("publishBtn").disabled = false;
 };
+$("prevWeek").onclick = () => { weekStart = CL.addDays(weekStart, -7); shifts.demo = false; load(); };
+$("nextWeek").onclick = () => { weekStart = CL.addDays(weekStart, 7); shifts.demo = false; load(); };
+$("addWorkerBtn").onclick = () => CL.crewSheet(null, load);
 
-document.getElementById("prevWeek").onclick=()=>{weekStart=addDays(weekStart,-7);load();};
-document.getElementById("nextWeek").onclick=()=>{weekStart=addDays(weekStart,7);load();};
-document.getElementById("revInput").addEventListener("input",updatePct);
-
-/* ---------- crew management ---------- */
-let AWARDS = [
-  {code:"MA000009", name:"Hospitality (HIGA)", levels:[{key:"INTRO",label:"Introductory"},{key:"L1",label:"Level 1 — F&B/Kitchen Att."},{key:"L2",label:"Level 2 — Cook Gr1/HK"},{key:"L3",label:"Level 3 — Cook Gr2/Senior"},{key:"L4",label:"Level 4 — Cook Gr3 (trade)"},{key:"L5",label:"Level 5 — Cook Gr4/Sup."},{key:"L6",label:"Level 6 — Cook Gr5"}]},
-  {code:"MA000022", name:"Cleaning Services", levels:[{key:"L1",label:"Level 1 — Cleaner"},{key:"L2",label:"Level 2 — Specialist tasks"},{key:"L3",label:"Level 3 — Supervisor/plant"}]},
-  {code:"MA000016", name:"Security Services", levels:[{key:"L1",label:"Level 1 — Security Officer 1"},{key:"L2",label:"Level 2 — Security Officer 2"},{key:"L3",label:"Level 3 — Security Officer 3"},{key:"L4",label:"Level 4 — Security Officer 4"}]},
-];
-let editingWorker = null;
-(async()=>{ try{ const r=await fetch(api("/awards")); if(r.ok){ AWARDS=(await r.json()).awards.map(a=>({...a, name:a.name.replace(" Award 2020","").replace(" Industry","")})); } }catch(e){} })();
-
-function fillAwardSelects(awardCode, level){
-  const aSel=document.getElementById("wAward");
-  aSel.innerHTML=AWARDS.map(a=>`<option value="${a.code}" ${a.code===awardCode?"selected":""}>${esc(a.name)}</option>`).join("");
-  fillLevels(awardCode||AWARDS[0].code, level);
-}
-function fillLevels(code, level){
-  const a=AWARDS.find(x=>x.code===code)||AWARDS[0];
-  document.getElementById("wLevel").innerHTML=a.levels.map(l=>`<option value="${l.key}" ${l.key===level?"selected":""}>${esc(l.label)}</option>`).join("");
-}
-document.getElementById("wAward").addEventListener("change",e=>fillLevels(e.target.value));
-
-function openWorkerModal(w){
-  editingWorker=w||null;
-  document.getElementById("workerModalTitle").textContent=w?("Edit — "+w.name):"Add crew member";
-  document.getElementById("wName").value=w?w.name:"";
-  document.getElementById("wPhone").value=w&&w.phone?w.phone:"";
-  document.getElementById("wType").value=w?(w.employmentType||"casual"):"casual";
-  document.getElementById("wRole").value=w?(w.role||"staff"):"staff";
-  fillAwardSelects(w?(w.awardCode||"MA000009"):"MA000009", w?w.level:undefined);
-  document.getElementById("workerDeactivate").style.display=w?"inline-block":"none";
-  document.getElementById("workerNote").className="guardnote";
-  document.getElementById("workerModal").showModal();
-}
-document.getElementById("addWorkerBtn").onclick=()=>openWorkerModal(null);
-document.getElementById("workerCancel").onclick=()=>document.getElementById("workerModal").close();
-document.getElementById("walletEditWorker").onclick=()=>{ document.getElementById("walletModal").close(); openWorkerModal(walletWorker); };
-
-document.getElementById("workerForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const body={
-    name:document.getElementById("wName").value.trim(),
-    phone:document.getElementById("wPhone").value.replace(/[^0-9]/g,"")||null,
-    role:document.getElementById("wRole").value,
-    employmentType:document.getElementById("wType").value,
-    awardCode:document.getElementById("wAward").value,
-    level:document.getElementById("wLevel").value,
+/* ---------- wallet ---------- */
+async function openWallet(w) {
+  let creds = [], types = null;
+  if (!DEMO) { try { const j = await CL.api(`${API}/wallet/${w.id}`); creds = j.credentials || []; types = j.types; } catch { creds = []; } }
+  const t = types || { visa: { label: "Visa / right to work" }, rsa: { label: "RSA / RCG" }, fss: { label: "Food Safety Supervisor" }, first_aid: { label: "First aid" }, drivers_licence: { label: "Driver licence" } };
+  const today = CL.today(), soon = CL.addDays(today, 30);
+  const list = creds.length ? creds.sort((a, b) => (a.expiryDate || "9999").localeCompare(b.expiryDate || "9999")).map((c) => {
+    const st = !c.expiryDate ? "" : c.expiryDate < today ? "expired" : c.expiryDate < soon ? "expiring" : "";
+    return `<div class="cred ${st}"><span>${E(c.label || c.type)}${c.number ? ` · ${E(c.number)}` : ""}<span class="src">${c.source === "whatsapp" || c.source === "telegram" ? "filed by crew on chat" : "added on dashboard"}</span></span><span class="exp">${c.expiryDate ? (st === "expired" ? "expired " : "exp ") + CL.dayNum(c.expiryDate) : "no expiry"}</span></div>`;
+  }).join("") : `<div class="empty">No credentials on file yet.</div>`;
+  const el = CL.makeSheet({ id: "wallet-sheet", title: `Wallet — ${E(w.name)}`, body: `
+      <div class="card" style="margin-bottom:14px">${list}</div>
+      <div class="frow"><label class="field"><span class="lbl">Add credential</span><select id="c-type">${Object.entries(t).map(([k, v]) => `<option value="${k}">${E(v.label)}</option>`).join("")}</select></label>
+        <label class="field"><span class="lbl">Expiry</span><input id="c-exp" type="date"></label></div>
+      <label class="field"><span class="lbl">Number (optional)</span><input id="c-num" type="text" placeholder="Card / licence no."></label>
+      <p class="hint">Crew can also file these themselves — they send a photo of the card to the bot.</p><p class="err" id="c-err"></p>`,
+    foot: `<button class="btn" id="c-edit" type="button">Edit details</button><button class="btn primary" id="c-save" type="button">Save credential</button>` });
+  const s = CL.sheet("wallet-sheet"); s.open();
+  el.querySelector("#c-edit").onclick = () => { s.close(); CL.crewSheet(w, load); };
+  el.querySelector("#c-save").onclick = async () => {
+    const body = { type: el.querySelector("#c-type").value, expiryDate: el.querySelector("#c-exp").value, number: el.querySelector("#c-num").value || null };
+    if (!body.expiryDate) { el.querySelector("#c-err").textContent = "An expiry date is needed."; return; }
+    if (DEMO) { CL.toast("Credential saved (demo)"); s.close(); return; }
+    try { await CL.api(`${API}/wallet/${w.id}/credential`, { method: "POST", body }); CL.toast("Credential saved"); s.close(); load(); } catch (e) { el.querySelector("#c-err").textContent = e.message; }
   };
-  if(DEMO){
-    if(editingWorker){ Object.assign(editingWorker,body); }
-    else workers.push({id:"w"+Date.now(),...body,credentialStatus:"ok"});
-    document.getElementById("workerModal").close(); render(); toast(editingWorker?"Crew member updated (demo)":"Crew member added (demo)"); return;
-  }
-  if(editingWorker) delete body.phone; // the number is the record's key — add a new person instead of changing it
-  const r = editingWorker
-    ? await fetch(api(`/workers/${editingWorker.id}`),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
-    : await fetch(api(`/workers`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  if(r.ok){ document.getElementById("workerModal").close(); await load(); toast(editingWorker?"Crew member updated":"Crew member added"); }
-  else{ const j=await r.json().catch(()=>({})); const g=document.getElementById("workerNote"); g.className="guardnote red"; g.textContent=j.error||"Save failed"; }
-});
-
-document.getElementById("workerDeactivate").onclick=async()=>{
-  if(!editingWorker||!confirm(`Deactivate ${editingWorker.name}? They stay in past records but leave the roster.`)) return;
-  if(DEMO){ workers=workers.filter(w=>w.id!==editingWorker.id); document.getElementById("workerModal").close(); render(); toast("Deactivated (demo)"); return; }
-  const r=await fetch(api(`/workers/${editingWorker.id}`),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({active:false})});
-  if(r.ok){ document.getElementById("workerModal").close(); await load(); toast("Crew member deactivated"); }
-};
-
-/* ---------- credential wallet ---------- */
-let walletWorker = null;
-const DEMO_CREDS = {
-  w2:[{label:"Visa / right to work",expiryDate:addDays(todayStr(),21),source:"whatsapp"},
-      {label:"Food Safety Supervisor",expiryDate:addDays(todayStr(),400),source:"dashboard"}],
-  w3:[{label:"RSA / RCG",expiryDate:addDays(todayStr(),-6),source:"whatsapp"}],
-};
-document.getElementById("bodyRows").addEventListener("click",e=>{
-  const wc=e.target.closest("td.workercol");
-  if(wc){ const row=wc.parentElement.rowIndex-1; openWallet(workers[row]); }
-});
-async function openWallet(w){
-  if(!w) return;
-  walletWorker=w;
-  document.getElementById("walletTitle").textContent="Wallet — "+w.name;
-  let creds=[], types=null;
-  if(DEMO){ creds=DEMO_CREDS[w.id]||[]; }
-  else{
-    try{ const r=await fetch(api(`/wallet/${w.id}`)); const j=await r.json(); creds=j.credentials||[]; types=j.types; }
-    catch(e){ creds=[]; }
-  }
-  renderCreds(creds);
-  const sel=document.getElementById("cType");
-  const t=types||{visa:{label:"Visa / right to work"},rsa:{label:"RSA / RCG"},white_card:{label:"White Card"},ndis_screening:{label:"NDIS worker screening"},police_check:{label:"Police check"},fss:{label:"Food Safety Supervisor"},first_aid:{label:"First aid"},drivers_licence:{label:"Driver licence"}};
-  sel.innerHTML=Object.entries(t).map(([k,v])=>`<option value="${k}">${esc(v.label)}</option>`).join("");
-  document.getElementById("walletModal").showModal();
 }
-function renderCreds(creds){
-  const el=document.getElementById("credList");
-  if(!creds.length){ el.innerHTML='<div class="wallet-empty">No credentials on file yet.</div>'; return; }
-  const today=todayStr(), soon=addDays(today,30);
-  el.innerHTML=creds
-    .sort((a,b)=>(a.expiryDate||"9999").localeCompare(b.expiryDate||"9999"))
-    .map(c=>{
-      const st=!c.expiryDate?"":c.expiryDate<today?"expired":c.expiryDate<soon?"expiring":"";
-      return `<div class="cred ${st}">
-        <span>${esc(c.label||c.type)}${c.number?` · ${esc(c.number)}`:""}
-          <span class="src">${c.source==="whatsapp"||c.source==="telegram"?"filed by crew on chat":"added on dashboard"}</span></span>
-        <span class="exp">${c.expiryDate?(st==="expired"?"expired ":"exp ")+fmt(c.expiryDate):"no expiry"}</span>
-      </div>`;
-    }).join("");
+
+/* ---------- live strip ---------- */
+async function loadLive() {
+  try {
+    const { shifts: live } = await CL.api("/api/dashboard");
+    const on = live.filter((s) => !s.clockOut && !s.clockIn.flaggedForReview).length, fl = live.filter((s) => !s.clockOut && s.clockIn.flaggedForReview).length;
+    $("livePill").textContent = `${on} on now${fl ? ` · ${fl} to review` : ""}`; $("livePill").className = "pill " + (fl ? "warn" : "ok");
+  } catch { $("livePill").textContent = "live: offline"; $("livePill").className = "pill"; }
 }
-document.getElementById("walletClose").onclick=()=>document.getElementById("walletModal").close();
-document.getElementById("credForm").addEventListener("submit",async e=>{
-  e.preventDefault();
-  const body={type:document.getElementById("cType").value,
-    expiryDate:document.getElementById("cExpiry").value,
-    number:document.getElementById("cNumber").value||null};
-  if(DEMO){
-    (DEMO_CREDS[walletWorker.id]=DEMO_CREDS[walletWorker.id]||[]).push({label:document.getElementById("cType").selectedOptions[0].text,...body,source:"dashboard"});
-    renderCreds(DEMO_CREDS[walletWorker.id]); toast("Credential saved (demo)"); return;
-  }
-  const r=await fetch(api(`/wallet/${walletWorker.id}/credential`),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-  if(r.ok){ toast("Credential saved"); openWallet(walletWorker); load(); }
-  else toast("Save failed");
-});
 
 /* ---------- utils ---------- */
-function mondayOf(d){const x=new Date(d);const day=(x.getDay()+6)%7;x.setDate(x.getDate()-day);return x.toISOString().slice(0,10);}
-function addDays(ds,n){const d=new Date(ds+"T12:00:00");d.setDate(d.getDate()+n);return d.toISOString().slice(0,10);}
-function todayStr(){return new Date().toISOString().slice(0,10);}
-function fmt(ds){return new Date(ds+"T12:00:00").toLocaleDateString("en-AU",{day:"numeric",month:"short"});}
-function toMin(t){const[a,b]=t.split(":").map(Number);return a*60+b;}
-function etLabel(t){return{fulltime:"Full-time",parttime:"Part-time",casual:"Casual"}[t]||t;}
-function r2(n){return Math.round(n*100)/100;}
-function set(id,v){document.getElementById(id).textContent=v;}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",3200);}
+function toMin(t) { const [a, b] = t.split(":").map(Number); return a * 60 + b; }
+function etShort(t) { return { fulltime: "FT", parttime: "PT", casual: "Cas" }[t] || t || ""; }
+function r2(n) { return Math.round(n * 100) / 100; }
 
-/* ---------- Live attendance bridge ----------
-   The chat clock-in system writes attendance events to the
-   top-level `shifts` collection and serves them via /api/dashboard. This
-   page's planned roster lives in a *different* tenants/{id}/shifts collection
-   under /api/core. Same word, two datasets — see handoff doc §5. This panel
-   reads the attendance side so a manager mid-service never has to leave
-   /roster to see who's actually on, clock someone out, or clear a flagged
-   out-of-radius clock-in. Both keys are the same MANAGER_DASHBOARD_PASSWORD. */
-async function loadLive(){
-  const box=document.getElementById("liveList"), pill=document.getElementById("livePill");
-  try{
-    const r=await fetch(`/api/dashboard?key=${encodeURIComponent(KEY)}`);
-    if(!r.ok) throw 0;
-    const {staff,shifts}=await r.json();
-    const name=p=>{const s=staff.find(x=>x.phone===p);return s?s.name:p;};
-    const dept=p=>{const s=staff.find(x=>x.phone===p);return s?(s.department||s.role||""):"";};
-    const dur=ms=>{const m=Math.max(0,Math.floor(ms/60000));return `${Math.floor(m/60)}h ${String(m%60).padStart(2,"0")}m`;};
-    const clock=iso=>new Date(iso).toLocaleTimeString("en-AU",{hour:"2-digit",minute:"2-digit"});
-    const on=shifts.filter(s=>!s.clockOut&&!s.clockIn.flaggedForReview);
-    const flagged=shifts.filter(s=>!s.clockOut&&s.clockIn.flaggedForReview);
-    pill.textContent=`${on.length} on`+(flagged.length?` · ${flagged.length} flagged`:"");
-    pill.classList.toggle("warn",flagged.length>0);
-    if(!on.length&&!flagged.length){box.innerHTML=`<span class="empty">Nobody's clocked in. Rows appear the moment someone texts "in".</span>`;return;}
-    box.innerHTML=`<div class="live-rows">${
-      flagged.map(s=>`<div class="live-row flagged">
-        <span class="ln">${esc(name(s.staffPhone))}</span>
-        <span class="lm">📍 ${esc(s.clockIn.distanceMeters)}m from ${esc(s.siteName||"the venue")} · tried ${clock(s.clockIn.time)}</span>
-        <span class="lt">FLAGGED</span>
-        <button class="l-ok" onclick="liveReview('${esc(s.shiftId)}',true,this)">Approve</button>
-        <button class="l-cut" onclick="liveReview('${esc(s.shiftId)}',false,this)">Cut</button>
-      </div>`).join("")}${
-      on.map(s=>`<div class="live-row">
-        <span class="ln">${esc(name(s.staffPhone))}</span>
-        <span class="lm">${esc(dept(s.staffPhone))} · on since ${clock(s.clockIn.time)}</span>
-        <span class="lt">⏱ ${dur(Date.now()-new Date(s.clockIn.time).getTime())}</span>
-        <button class="l-out" onclick="liveClockOut('${esc(s.shiftId)}',this)">Clock out</button>
-      </div>`).join("")}</div>`;
-  }catch(e){
-    box.innerHTML=`<span class="empty">Live attendance unavailable — <a class="live-link" style="margin:0" href="/dashboard">open the full dashboard</a>.</span>`;
-    pill.textContent="—";pill.classList.remove("warn");
-  }
-}
-async function liveClockOut(id,btn){
-  btn.disabled=true;
-  const r=await fetch(`/api/shifts/${encodeURIComponent(id)}/close?key=${encodeURIComponent(KEY)}`,{method:"POST"}).catch(()=>null);
-  if(r&&r.ok){toast("Clocked out");loadLive();}
-  else{btn.disabled=false;toast("Couldn't clock out — try the full dashboard");}
-}
-async function liveReview(id,approve,btn){
-  btn.disabled=true;
-  const r=await fetch(`/api/shifts/${encodeURIComponent(id)}/review?key=${encodeURIComponent(KEY)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({approve})}).catch(()=>null);
-  if(r&&r.ok){toast(approve?"Approved — they're on the board":"Cut");loadLive();}
-  else{btn.disabled=false;toast("Couldn't update — try the full dashboard");}
-}
-
-load().finally(loadLive);
-setInterval(()=>{if(!document.hidden)loadLive();},120000);
+$("todayLink").href = CL.url("/dashboard");
+CL.tabbar("roster"); CL.topbar();
+CL.requireKey(() => {
+  CL.venueName().then((me) => { if (me && me.name) $("venueName").textContent = me.name; });
+  load(); loadLive(); setInterval(() => { if (!document.hidden) loadLive(); }, 120000);
+});
 </script>
 </body>
 </html>

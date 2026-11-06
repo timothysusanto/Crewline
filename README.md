@@ -3,8 +3,9 @@
 Telegram-first staff app for small venues — a café, a restaurant, a bar with 5–30 people.
 Staff message a Telegram bot to clock in and out (GPS-checked), see their roster, confirm it
 or ask for a swap, set availability, file their certificates, run the food-safety checks and
-log deliveries. Managers get a roster page with award-rate costing, a dashboard with attendance
-review, hours, sites and the weekly P&L, a food-safety diary and payroll CSV.
+log deliveries. Managers get a roster page with HIGA award costing, a Pay page (this week's
+payroll against a revenue budget, the 152-hour cycle for full-timers, the pay-run CSV), a
+dashboard with attendance review, sites and crew, and a food-safety diary. All built for a phone.
 
 No Meta business verification: Telegram is the primary channel, WhatsApp is an optional
 fallback. Setup is in `docs/telegram-channel.md`.
@@ -15,7 +16,8 @@ fallback. Setup is in `docs/telegram-channel.md`.
 |---|---|---|
 | Staff bot | `router.js`, `telegramWebhook.js`, `*Handler.js` | clock in/out, breaks, roster, YES/SWAP, availability, wallet, food safety, training, deliveries |
 | Roster | `/roster`, `core-os-routes.js`, `rosterStore.js`, `award-engine.js` | crew list, shift builder, award costing, publish to Telegram, credential wallet, training gaps, payroll CSV |
-| Dashboard | `/dashboard`, `server.js` | on shift now, flagged clock-ins, amendments, sites/geofence, penalty settings, week numbers, reports |
+| Pay | `/pay`, `payroll.js`, `payroll-routes.js` | revenue forecast → payroll budget (kitchen % / total %), rostered vs actual by day and person, salaried staff posted daily, 152h/4-week cycle, pay-run CSV |
+| Dashboard | `/dashboard`, `server.js` | on shift now, flagged clock-ins, amendments, sites/geofence, crew, shift history |
 | Food safety | `/foodsafety`, `foodSafety*.js` | temperature runs, cleaning list, deliveries, scheduled prompts |
 
 Multi-venue: each member venue is `tenants/{tenantId}` with its own dashboard key; one bot serves all.

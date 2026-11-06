@@ -1,1319 +1,185 @@
 <!DOCTYPE html>
 <html lang="en-AU">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-<meta name="theme-color" content="#FFFFFF" />
-<title>Manager Dashboard — Crewline</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Crewline">
+<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171B" media="(prefers-color-scheme: dark)">
+<title>Today — Crewline</title>
+<link rel="stylesheet" href="/static/crewline.css">
 <style>
-  /* ============ Tokens — light theme spec (matches roster.html / foodsafety.html) ============ */
-  :root{
-    --paper:#FFFFFF;         /* background */
-    --docket:#FAF7F0;        /* cards, docket */
-    --ink:#1A1A1A;           /* body text */
-    --ink-2:#555555;         /* secondary text floor */
-    --steel:#3E4C59;         /* structure, headers, primary buttons */
-    --steel-line:#D8DEE4;    /* hairlines */
-    --amber:#B45309;         /* heat lamp: warnings, expiring, unfilled ONLY */
-    --amber-bg:#FDF3E7;
-    --red:#B3261E;           /* expired / blocking */
-    --red-bg:#FBEAE9;
-    --green:#166534;         /* published / confirmed */
-    --green-bg:#EAF4EC;
-    --radius:10px;
-    --font-ui:'Archivo',system-ui,sans-serif;
-    --font-docket:'IBM Plex Mono',ui-monospace,monospace;
-    /* Legacy aliases — inline styles in markup/JS still reference these */
-    --text:var(--ink); --dim:var(--ink-2); --seam:var(--steel-line);
-    --panel:var(--paper); --cream:var(--docket);
-    --lamp:var(--amber); --lamp-deep:var(--amber);
-    --herb:var(--green); --herb-deep:var(--green);
-    --red86:var(--red); --ink-soft:#6B6152;
-  }
-  *{box-sizing:border-box}
-  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
-  body{
-    margin:0;color:var(--ink);background:var(--paper);
-    font-family:var(--font-ui);font-size:15px;line-height:1.5;
-    -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
-  }
-  ::selection{background:var(--amber-bg);color:var(--ink)}
-  .bebas{font-family:var(--font-ui);font-stretch:80%;font-weight:800;letter-spacing:.02em;text-transform:uppercase}
-  .mono{font-family:var(--font-docket)}
-  button{font-family:inherit;cursor:pointer}
-  button:disabled{opacity:.55;cursor:default}
-  :focus-visible{outline:3px solid var(--steel);outline-offset:2px;border-radius:4px}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-  input,select{
-    background:var(--paper);border:1px solid var(--steel-line);border-radius:8px;
-    color:var(--ink);font-family:var(--font-docket);font-size:13px;padding:9px 10px;
-  }
-  input:hover,select:hover{border-color:var(--steel)}
-  input::placeholder{color:#9AA3AC}
-
-  /* Old dark-theme fixtures — retired, kept as no-ops so markup/JS stay untouched */
-  .lamp-fixture,.lamp-glow,.rail{display:none}
-  .lamp-zone{position:relative}
-
-  /* ============ Docket-stamp section headers ============ */
-  .stamp{display:flex;align-items:center;gap:14px;margin:0 0 16px}
-  .stamp h2{
-    margin:0;font-family:var(--font-docket);font-weight:600;font-size:12px;
-    letter-spacing:.12em;color:var(--steel);text-transform:uppercase;white-space:nowrap;
-  }
-  .stamp h2::before,.stamp h2::after{content:"\2731\2009\2731\2009\2731";color:var(--steel-line);font-size:10px}
-  .stamp h2::before{margin-right:10px}
-  .stamp h2::after{margin-left:10px}
-  .stamp .rule{flex:1;border-top:1px dashed var(--steel-line)}
-  .stamp .spacer{flex:1}
-
-  /* ============ Layout ============ */
-  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px}
-  section{margin-top:52px}
-
-  /* ============ Gate ============ */
-  #gate{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;background:var(--paper)}
-  #gate h1{font-size:34px;margin:0 0 6px;color:var(--steel);font-weight:800;font-stretch:80%}
-  #gate p{margin:0 0 26px;color:var(--ink-2);font-size:13px}
-  #gate .card{text-align:center;padding:0 20px}
-  #gate input{width:280px;text-align:center;font-size:15px;padding:12px}
-  #gate button{
-    display:block;width:280px;margin:12px auto 0;padding:13px 0;
-    background:var(--steel);color:#fff;border:none;border-radius:8px;
-    font-weight:700;font-size:14px;letter-spacing:.03em;
-  }
-  #gate button:hover{background:#2d3a45}
-  #gate .err{color:var(--red);font-size:12px;min-height:18px;margin-top:12px}
-
-  /* ============ Header ============ */
-  header{
-    display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 22px;
-    padding:22px 0 16px;border-bottom:1px solid var(--steel-line);
-  }
-  header .brand{font-size:19px;color:var(--steel);line-height:1.2}
-  header .venue{color:var(--ink-2);font-size:12px;letter-spacing:.06em;text-transform:uppercase}
-  header .grow{flex:1}
-  #serviceClock{font-family:var(--font-docket);font-weight:600;font-size:20px;color:var(--steel);letter-spacing:.06em}
-  .badges{display:flex;gap:10px;width:100%;margin-top:8px}
-  .badge{
-    font-family:var(--font-docket);font-size:12px;padding:6px 12px;border-radius:999px;
-    border:1px solid var(--steel-line);color:var(--ink-2);background:var(--paper);
-  }
-  .badge .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--green);margin-right:7px}
-  .badge.alert{border-color:var(--amber);color:var(--amber);background:var(--amber-bg)}
-
-  /* ============ On-shift dockets ============ */
-  .rail-zone{padding-top:4px}
-  .tickets{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
-  .ticket{
-    position:relative;width:188px;padding:22px 16px 24px;
-    background:var(--docket);color:var(--ink);
-    border:1px solid var(--steel-line);border-bottom:none;
-    box-shadow:0 4px 14px rgba(62,76,89,.10);
-    clip-path:polygon(0 0,100% 0,100% 93%,94% 97%,88% 93%,82% 97%,76% 93%,70% 97%,64% 93%,58% 97%,52% 93%,46% 97%,40% 93%,34% 97%,28% 93%,22% 97%,16% 93%,10% 97%,4% 93%,0 97%);
-  }
-  .ticket .clip{
-    position:absolute;top:-8px;left:50%;transform:translateX(-50%);
-    width:22px;height:14px;border-radius:3px;
-    background:linear-gradient(180deg,#C6CDD4,#8E99A3);border:1px solid #8E99A3;
-  }
-  .ticket .name{font-family:var(--font-ui);font-stretch:80%;font-weight:800;font-size:19px;letter-spacing:.02em;text-transform:uppercase}
-  .ticket .dept{font-family:var(--font-docket);font-size:10px;text-transform:uppercase;color:var(--ink-soft);margin:2px 0 12px}
-  .ticket .elapsed{font-family:var(--font-docket);font-size:15px;font-weight:600;color:var(--green)}
-  .ticket .since{font-family:var(--font-docket);font-size:10px;color:var(--ink-soft);margin-top:3px}
-  .ticket .divider{border-top:1px dashed #D9D0BC;margin:10px 0}
-  .ticket .dist{font-family:var(--font-docket);font-size:12px;font-weight:600;color:var(--red)}
-  .ticket .tag{
-    position:absolute;top:10px;right:10px;font-family:var(--font-docket);
-    font-size:9px;font-weight:600;padding:2px 6px;border-radius:3px;
-    background:var(--red);color:#fff;
-  }
-  .ticket .actions{display:flex;gap:8px;margin-top:12px}
-  .ticket .actions button{flex:1;padding:8px 0;border-radius:6px;font-family:var(--font-docket);font-size:12px;font-weight:600}
-  .ticket .approve{background:var(--green);color:#fff;border:none}
-  .ticket .approve:hover{background:#0f4f27}
-  .ticket .cut{background:transparent;color:var(--red);border:1px solid var(--red)}
-  .ticket .cut:hover{background:var(--red-bg)}
-
-  .pass-cols{display:grid;grid-template-columns:1.7fr 1fr;gap:40px}
-  @media (max-width:860px){.pass-cols{grid-template-columns:1fr}}
-
-  .empty{
-    padding:24px;border:1px dashed var(--steel-line);border-radius:var(--radius);
-    color:var(--ink-2);font-size:13px;text-align:center;background:var(--docket);
-  }
-
-  /* ============ Roster board ============ */
-  .board-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .week-nav{
-    width:36px;height:36px;border-radius:8px;background:var(--paper);
-    border:1px solid var(--steel-line);color:var(--steel);font-size:16px;
-  }
-  .week-nav:hover{border-color:var(--steel)}
-  .week-label{font-family:var(--font-docket);font-weight:600;font-size:14px;min-width:148px;text-align:center}
-  .publish-btn{
-    margin-left:auto;padding:11px 20px;border:none;border-radius:8px;
-    background:var(--steel);color:#fff;font-weight:700;font-size:13px;letter-spacing:.03em;
-    transition:background .15s ease;
-  }
-  .publish-btn:hover{background:#2d3a45}
-  .brush-btn{
-    padding:9px 14px;border-radius:8px;background:var(--paper);
-    border:1px solid var(--steel);color:var(--steel);
-    font-family:var(--font-docket);font-size:12px;font-weight:600;
-  }
-  .brush-btn:hover{background:var(--docket)}
-  .site-brush{display:inline-flex;align-items:center;gap:7px}
-  .site-brush label{font-family:var(--font-docket);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2)}
-  .board-wrap{border:1px solid var(--steel-line);border-radius:var(--radius);overflow-x:auto;margin-top:16px;background:var(--paper)}
-  .board{width:100%;min-width:660px;border-collapse:collapse;font-family:var(--font-docket);font-size:12px}
-  .board th{
-    padding:10px 6px;text-align:center;font-size:10px;text-transform:uppercase;
-    letter-spacing:.06em;color:var(--steel);font-weight:600;border-bottom:1px solid var(--steel-line);background:var(--docket);
-  }
-  .board th:first-child{text-align:left;padding-left:16px}
-  .board td{padding:5px;text-align:center}
-  .board td.crew-cell{text-align:left;padding:8px 8px 8px 16px;white-space:nowrap;font-weight:600}
-  .cell{
-    width:100%;height:40px;border:1px solid transparent;border-radius:6px;
-    font-family:var(--font-docket);font-size:11px;font-weight:600;
-    background:#F1F3F5;color:var(--ink-2);
-    transition:background .15s ease,color .15s ease;
-  }
-  .cell:hover{border-color:var(--steel-line)}
-  .cell.avail{background:var(--green-bg)}
-  .cell.unavail{background:var(--red-bg)}
-  .cell.slot-AM{background:#FDE9C8;color:#7A4B08}
-  .cell.slot-PM{background:#E4E1F7;color:#3F3663}
-  .cell.slot-ALL{background:var(--green);color:#fff}
-  .cell.slot-CUSTOM{background:#D9EFEF;color:#0F4C4C;font-size:10px;letter-spacing:0}
-  .cell.conflict{box-shadow:inset 0 0 0 2px var(--amber)}
-  .cell .cell-site{display:block;font-size:9px;font-weight:500;opacity:.8;letter-spacing:.02em}
-  .cell.no-site{box-shadow:inset 0 0 0 2px var(--red)}
-  .quick-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-  .q-chip{
-    padding:8px 14px;border-radius:999px;background:var(--paper);
-    border:1px solid var(--steel-line);color:var(--ink);
-    font-family:var(--font-docket);font-size:12px;font-weight:600;
-  }
-  .q-chip:hover{border-color:var(--steel)}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-family:var(--font-docket);font-size:11px;color:var(--ink-2)}
-  .chip{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px;border:1px solid rgba(0,0,0,.10)}
-
-  .cost-line{
-    display:flex;flex-wrap:wrap;align-items:center;gap:16px 26px;margin-top:16px;
-    padding:16px 18px;border:1px solid var(--steel-line);border-radius:var(--radius);
-    background:var(--docket);font-family:var(--font-docket);font-size:13px;
-  }
-  #rosterCost{font-size:24px;font-weight:600;color:var(--ink);transition:color .3s}
-  .cost-line label{color:var(--ink-2);font-size:11px;text-transform:uppercase;margin-right:6px}
-  .cost-line input{width:110px}
-  .pct-ok{color:var(--green);font-weight:600}
-  .pct-warn{color:var(--amber);font-weight:600}
-  .cost-note{width:100%;color:var(--ink-2);font-size:12.5px;line-height:1.7;font-family:var(--font-ui)}
-  .inline-msg{font-family:var(--font-docket);font-size:12px;margin-top:10px;min-height:16px}
-  .inline-msg .ok,.ok{color:var(--green)}
-  .inline-msg .fail,.fail{color:var(--red)}
-
-  /* ============ The numbers ============ */
-  .num-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px}
-  .num-card{
-    background:var(--docket);color:var(--ink);border:1px solid var(--steel-line);
-    border-radius:var(--radius);padding:16px 18px 18px;font-family:var(--font-docket);
-  }
-  .num-card .label{font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--ink-soft)}
-  .num-card .value{font-size:26px;font-weight:600;margin-top:8px}
-  .num-card .value.good{color:var(--green)}
-  .num-card .value.bad{color:var(--red)}
-  .num-card .sub{font-size:10px;color:var(--ink-soft);margin-top:6px;border-top:1px dashed #D9D0BC;padding-top:8px}
-
-  .hours-list{display:flex;flex-direction:column;gap:10px;margin-top:26px}
-  .hours-row{display:flex;align-items:center;gap:12px;font-family:var(--font-docket)}
-  .hours-name{width:92px;font-size:12px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .hours-track{flex:1;height:7px;border-radius:4px;background:#EDF0F2;overflow:hidden}
-  .hours-fill{height:100%;background:var(--steel);border-radius:4px}
-  .hours-val{width:58px;text-align:right;font-size:12px;color:var(--ink-2);flex-shrink:0}
-
-  /* ============ Panels (cost settings, reports) ============ */
-  .pen-panel{border:1px solid var(--steel-line);border-radius:var(--radius);background:var(--paper);padding:20px}
-  .pen-presets{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
-  .preset-btn{
-    padding:9px 16px;border-radius:8px;font-family:var(--font-docket);font-size:12px;font-weight:600;
-    background:var(--paper);color:var(--ink);border:1px solid var(--steel-line);
-  }
-  .preset-btn:hover{border-color:var(--steel)}
-  .preset-btn.active{border-color:var(--steel);background:var(--docket);color:var(--steel)}
-  .pen-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-  .field label{display:block;font-family:var(--font-docket);font-size:10px;text-transform:uppercase;color:var(--ink-2);margin-bottom:6px}
-  .field input,.field select{width:100%}
-  .pen-save{margin-top:16px;display:flex;align-items:center;gap:14px}
-  .pen-save button{
-    padding:10px 18px;border:none;border-radius:8px;
-    background:var(--green);color:#fff;font-family:var(--font-docket);font-size:12px;font-weight:600;
-  }
-  .pen-save button:hover{background:#0f4f27}
-  .pen-note{color:var(--ink-2);font-size:12.5px;line-height:1.7;margin-top:14px;font-family:var(--font-ui);max-width:72ch}
-  .pen-note strong{color:var(--ink)}
-
-  /* ============ Tables ============ */
-  .add-btn{
-    padding:9px 16px;border-radius:8px;font-family:var(--font-docket);font-size:12px;font-weight:600;
-    background:var(--paper);color:var(--steel);border:1px solid var(--steel);
-  }
-  .add-btn:hover{background:var(--docket)}
-  .table-wrap{border:1px solid var(--steel-line);border-radius:var(--radius);overflow-x:auto;background:var(--paper)}
-  table.data{width:100%;border-collapse:collapse;font-family:var(--font-ui);font-size:14px;font-variant-numeric:tabular-nums}
-  table.data th{
-    text-align:left;padding:11px 16px;font-size:10px;text-transform:uppercase;
-    letter-spacing:.06em;color:var(--steel);font-weight:600;border-bottom:1px solid var(--steel-line);
-    font-family:var(--font-docket);background:var(--docket);
-  }
-  table.data td{padding:11px 16px;border-bottom:1px dashed var(--steel-line)}
-  table.data tr:last-child td{border-bottom:none}
-  td.dur{color:var(--green);font-weight:600;font-family:var(--font-docket);font-size:13px}
-  td.amt{font-family:var(--font-docket);font-size:13px;text-align:right;font-weight:600}
-  .del-btn{background:transparent;border:none;color:var(--ink-2);font-size:14px;padding:2px 6px}
-  .del-btn:hover{color:var(--red)}
-  tr.total-row td{border-top:1px solid var(--steel-line);color:var(--ink);font-weight:700}
-
-  /* ============ Modal ============ */
-  .overlay{display:none;position:fixed;inset:0;background:rgba(26,26,26,.45);align-items:center;justify-content:center;z-index:60}
-  .overlay.open{display:flex}
-  .modal{
-    width:340px;max-width:92vw;max-height:88vh;overflow-y:auto;background:var(--paper);
-    border:1px solid var(--steel-line);border-radius:12px;padding:24px;
-    box-shadow:0 18px 44px rgba(26,26,26,.18);
-  }
-  .modal h3{
-    margin:0 0 18px;font-family:var(--font-ui);font-stretch:80%;font-weight:800;
-    font-size:18px;color:var(--steel);text-transform:uppercase;letter-spacing:.02em;
-  }
-  .modal .field{margin-bottom:12px}
-  .modal-actions{display:flex;gap:10px;margin-top:18px}
-  .modal-actions button{flex:1;padding:11px 0;border-radius:8px;font-family:var(--font-docket);font-size:13px;font-weight:600}
-  .modal-actions .save{background:var(--steel);color:#fff;border:none}
-  .modal-actions .save:hover{background:#2d3a45}
-  .modal-actions .cancel{background:transparent;color:var(--ink-2);border:1px solid var(--steel-line)}
-  .modal-actions .cancel:hover{border-color:var(--steel);color:var(--steel)}
-  .modal .err{color:var(--red);font-size:12px;min-height:14px;margin-top:8px}
-
-  /* ============ Reports rows ============ */
-  .larder-add{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px}
-  .larder-add .field{margin:0}
-  .larder-add input{width:130px}
-  .larder-add .grow input{width:180px}
-  .larder-add button{
-    padding:10px 18px;border:none;border-radius:8px;
-    background:var(--green);color:#fff;font-family:var(--font-docket);font-size:12px;font-weight:600;
-  }
-  .larder-add button:hover{background:#0f4f27}
-  .stock-row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:16px}
-  .stock-row .field{margin:0}
-  .stock-row input{width:130px}
-  .stock-note{color:var(--ink-2);font-size:12.5px;font-family:var(--font-ui);margin-top:10px;line-height:1.7;max-width:72ch}
-
-  /* ============ Section chips + compact + search ============ */
-  .section-chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px}
-  .s-chip{
-    padding:8px 14px;border-radius:999px;font-family:var(--font-docket);font-size:12px;font-weight:600;
-    background:var(--paper);color:var(--ink-2);border:1px solid var(--steel-line);
-  }
-  .s-chip:hover{border-color:var(--steel)}
-  .s-chip.active{border-color:var(--steel);background:var(--steel);color:#fff}
-  .compact-list{display:flex;flex-direction:column;gap:6px}
-  .compact-row{
-    display:flex;align-items:center;gap:12px;padding:10px 14px;
-    background:var(--docket);color:var(--ink);border:1px solid var(--steel-line);border-radius:8px;
-    font-family:var(--font-docket);font-size:13px;
-  }
-  .compact-row .c-name{font-weight:600;min-width:120px}
-  .compact-row .c-dept{color:var(--ink-soft);font-size:11px;text-transform:uppercase;flex:1}
-  .compact-row .c-time{color:var(--green);font-weight:600}
-  .crew-search{margin-bottom:12px}
-  .crew-search input{width:260px;max-width:100%}
-  .scale-note{font-family:var(--font-ui);font-size:12.5px;color:var(--ink-2);margin-top:8px;max-width:80ch}
-
-  /* ============ Motion ============ */
-  @media (prefers-reduced-motion:no-preference){
-    .ticket{transition:transform .16s ease}
-    .ticket:hover{transform:translateY(-3px)}
-    .lit .ticket{animation:settle .4s ease backwards}
-    .lit .ticket:nth-child(2){animation-delay:.06s}
-    .lit .ticket:nth-child(3){animation-delay:.12s}
-    .lit .ticket:nth-child(4){animation-delay:.18s}
-    @keyframes settle{from{transform:translateY(-8px);opacity:0}to{transform:translateY(0);opacity:1}}
-    .cell:active{transform:scale(.94)}
-    #dashboard{animation:fadein .4s ease}
-    @keyframes fadein{from{opacity:0}to{opacity:1}}
-  }
+  .paymini { display: flex; align-items: center; gap: 12px; }
+  .paymini .big { font-family: var(--font-docket); font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1; }
+  .paymini .big small { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .rost .st { font-family: var(--font-docket); font-size: 12px; }
+  .quick { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .quick a { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 14px 6px; background: var(--docket); border: 1px solid var(--line); border-radius: 12px; text-decoration: none; color: var(--ink); font-weight: 700; font-size: 13px; }
+  .quick a svg { width: 24px; height: 24px; stroke: var(--ember); fill: none; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 </style>
 </head>
 <body>
-
-<div id="gate">
-  <div class="lamp-glow"></div>
-  <div class="card">
-    <div class="lamp-fixture" style="position: relative; margin: 0 auto 34px; transform: none; left: auto;"></div>
-    <h1 class="bebas">Crewline</h1>
-    <p class="mono">Manager key to open the dashboard.</p>
-    <input id="keyInput" type="password" placeholder="Manager key" autocomplete="current-password" />
-    <button onclick="submitKey()">Open dashboard</button>
-    <p class="err mono" id="gateErr"></p>
-    <p class="mono" style="color: #9AA3AC; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; margin-top: 34px;">Manager access only</p>
+<div class="lamp"></div>
+<div class="app cl-app">
+  <div class="topbar">
+    <div class="kicker"><span class="live" id="liveDot"></span><span id="venueName">—</span><span>·</span><span id="dateLine"></span></div>
+    <h1>Today</h1>
+    <div class="actions">
+      <span class="pill ok" id="onPill">0 on</span>
+      <span class="pill warn" id="flagPill" style="display:none">0 to review</span>
+      <span class="grow"></span>
+      <span class="mono muted" id="clock" style="font-size:13px"></span>
+    </div>
   </div>
-</div>
 
-<div class="wrap" id="dashboard" style="display:none;">
-  <header>
-    <span class="brand bebas">Crewline</span><span id="venueName" style="margin-left:10px;color:var(--dim);font-size:13px;"></span>
-    <span class="venue mono" id="venueLine">—</span>
-    <span class="grow"></span>
-    <span id="serviceClock" class="bebas">--:--:--</span>
-    <div class="badges">
-      <span class="badge"><span class="dot"></span><span id="onShiftCount">0 on</span></span>
-      <span class="badge alert" id="reviewBadge" style="display:none;">⚠ <span id="reviewCount"></span></span>
-    </div>
-  </header>
+  <div class="section">
+    <h2>On shift now</h2>
+    <div id="onShift"><div class="empty">Loading…</div></div>
+  </div>
 
-  <section class="lamp-zone lit-target">
-    <div class="lamp-glow"></div>
-    <div class="lamp-fixture"></div>
-    <div class="section-chips" id="sectionChips" style="position: relative; z-index: 1;"></div>
-    <div class="pass-cols rail-zone" style="position: relative; z-index: 1;">
-      <div>
-        <div class="stamp"><h2>On Shift Now</h2><div class="rule"></div></div>
-        <div class="rail"></div>
-        <div id="onShiftList"></div>
-      </div>
-      <div>
-        <div class="stamp"><h2>Needs Review</h2><div class="rule"></div></div>
-        <div class="rail"></div>
-        <div id="reviewList"></div>
-      </div>
-    </div>
-  </section>
+  <div class="section" id="reviewSection" style="display:none">
+    <h2>Needs a look</h2>
+    <div id="review"></div>
+  </div>
 
-  <section>
-    <div class="stamp"><h2>Sites</h2><div class="spacer"></div><button class="add-btn" onclick="openAddSite()">+ Add site</button></div>
-    <p class="scale-note">Every clock-in is checked against your site's location. One venue = one site; add more only if you run several buildings.</p>
-    <p class="inline-msg" id="siteWarning"></p>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Site</th><th>Address</th><th>Location</th><th>Radius</th><th></th></tr></thead>
-        <tbody id="sitesBody"></tbody>
-      </table>
-    </div>
-  </section>
+  <div class="section">
+    <h2>Payroll this week <span class="spacer"></span><a href="#" id="payLink">Open Pay ›</a></h2>
+    <a class="card" id="payCard" href="#" style="display:block;text-decoration:none;color:inherit"><div class="empty">Loading…</div></a>
+  </div>
 
-  <section>
-    <div class="stamp"><h2>Roster</h2><div class="rule"></div></div>
-    <p class="scale-note">The roster lives on the <a href="/roster" style="color:var(--ink);font-weight:600;">Roster page</a> — build the week there and publish it; everyone gets their shifts on Telegram and replies YES to confirm or SWAP to ask for a change.</p>
-  </section>
+  <div class="section" id="rosterSection" style="display:none">
+    <h2>Rostered today <span class="spacer"></span><a href="#" id="rosterLink">Roster ›</a></h2>
+    <div class="card rows" id="rosterToday"></div>
+  </div>
 
-  <section>
-    <div class="stamp"><h2>This Week's Numbers</h2><div class="rule"></div></div>
-    <div class="cost-line">
-      <span><label>Week of</label><input id="numWeek" type="date" onchange="loadWeekNumbers()" /></span>
-      <span><label>Revenue forecast</label><input id="revenueInput" type="number" min="0" placeholder="e.g. 18000" onchange="saveWeekNumbers()" /></span>
-      <span><label>Opening stock $</label><input id="openingStock" type="number" min="0" placeholder="optional" onchange="saveWeekNumbers()" /></span>
-      <span><label>Closing stock $</label><input id="closingStock" type="number" min="0" placeholder="optional" onchange="saveWeekNumbers()" /></span>
-      <span class="cost-note">Feeds the weekly P&amp;L: labour %, food cost % and prime cost. Stock figures are optional — without them food cost uses purchases.</span>
-    </div>
-    <p class="inline-msg" id="numStatus"></p>
-  </section>
-
-  <section>
-    <div class="stamp"><h2>Hours — Last 7 Days</h2><div class="rule"></div></div>
-    <div class="hours-list" id="hoursList"></div>
-  </section>
-
-  <section>
-    <div class="stamp"><h2>Cost Settings — Penalty Rates</h2><div class="rule"></div></div>
-    <div class="pen-panel">
-      <div class="pen-presets">
-        <button class="preset-btn" id="presetAU" onclick="applyPreset('AU')">🇦🇺 Australia preset</button>
-        <button class="preset-btn" id="presetUS" onclick="applyPreset('US')">🇺🇸 US preset</button>
-      </div>
-      <div class="pen-fields">
-        <div class="field"><label>Saturday ×</label><input id="penSat" type="number" step="0.05" min="0.5" max="5" /></div>
-        <div class="field"><label>Sunday ×</label><input id="penSun" type="number" step="0.05" min="0.5" max="5" /></div>
-        <div class="field"><label>Public holiday ×</label><input id="penPH" type="number" step="0.05" min="0.5" max="5" /></div>
-        <div class="field"><label>Overtime after (h/week)</label><input id="penOTh" type="number" step="1" min="1" max="168" /></div>
-        <div class="field"><label>Overtime ×</label><input id="penOTx" type="number" step="0.05" min="1" max="5" /></div>
-      </div>
-      <div class="field" style="margin-top: 14px;">
-        <label>Public holiday dates (YYYY-MM-DD, comma separated)</label>
-        <input id="penPHDates" type="text" placeholder="e.g. 2026-12-25, 2026-12-26, 2027-01-01" />
-      </div>
-      <div class="pen-save">
-        <button onclick="savePenalties()">Save cost settings</button>
-        <span class="inline-msg" id="penStatus" style="margin: 0;"></span>
-      </div>
-      <p class="pen-note">
-        <strong>Cost-planning estimates only</strong> — not payroll, not award interpretation, not legal advice.
-        Presets are editable starting points: AU figures reflect common hospitality patterns (verify your modern award,
-        classification and casual loading at fairwork.gov.au); the US preset is the federal FLSA baseline (some states,
-        e.g. California, add daily overtime — verify your state law). You confirm and own these numbers.
-      </p>
-    </div>
-  </section>
-
-  <section>
-    <div class="stamp"><h2>Reports</h2><div class="rule"></div></div>
-    <div class="pen-panel">
-      <div class="larder-add">
-        <div class="field"><label>From</label><input id="repFrom" type="date" /></div>
-        <div class="field"><label>To</label><input id="repTo" type="date" /></div>
-        <button onclick="downloadPayroll()">Payroll CSV</button>
-        <button onclick="downloadPnl()" style="background: var(--steel);">Weekly P&amp;L CSV</button>
-        <span class="inline-msg" id="repStatus" style="margin: 0;"></span>
-      </div>
-      <p class="stock-note">
-        Payroll CSV: every closed shift in the range with effective times (amendments applied, originals included for audit),
-        paid hours, rate, weekend/holiday multiplier, weekly overtime lines and per-person totals — ready for the payment run.
-        Weekly P&amp;L CSV: revenue, actual labour and cost percentages for the week containing the "From" date. Pay figures are planning estimates on your configured rates — verify before paying.
-      </p>
-    </div>
-  </section>
-
-  <section>
-    <div class="stamp"><h2>Crew</h2><div class="spacer"></div><button class="add-btn" onclick="openAddStaff()">+ Add crew</button></div>
-    <div class="crew-search"><input id="crewSearch" type="search" placeholder="Search crew by name or phone…" oninput="crewSearchChanged()" /></div>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Name</th><th>Role</th><th>Section</th><th>Phone</th><th>Rate</th><th></th></tr></thead>
-        <tbody id="staffBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section>
-    <div class="stamp"><h2>Shift History</h2><div class="rule"></div></div>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Crew</th><th>Site</th><th>Date</th><th>In</th><th>Out</th><th>Shift</th><th></th></tr></thead>
-        <tbody id="historyBody"></tbody>
-      </table>
-    </div>
-  </section>
-</div>
-
-<div class="overlay" id="amendOverlay">
-  <div class="modal">
-    <h3>Amend Timesheet</h3>
-    <p class="mono" id="amendOriginal" style="font-size: 11px; color: var(--dim); margin: 0 0 14px; line-height: 1.6;"></p>
-    <div class="field"><label>Clock in</label><input id="amendIn" type="datetime-local" /></div>
-    <div class="field"><label>Clock out</label><input id="amendOut" type="datetime-local" /></div>
-    <div class="field"><label>Break (minutes)</label><input id="amendBreak" type="number" min="0" max="1440" step="1" /></div>
-    <p class="err mono" id="amendErr"></p>
-    <div class="modal-actions">
-      <button class="cancel" onclick="closeAmend()">Cancel</button>
-      <button class="save" onclick="saveAmend()">Save amendment</button>
+  <div class="section">
+    <h2>Quick</h2>
+    <div class="quick">
+      <a href="#" id="qCrew"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.5a5 5 0 0 1 6 5"/></svg>Crew</a>
+      <a href="#" id="qSites"><svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Sites</a>
+      <a href="#" id="qHist"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>History</a>
     </div>
   </div>
 </div>
 
-<div class="overlay" id="addSiteOverlay">
-  <div class="modal">
-    <h3 id="addSiteTitle">Add Site</h3>
-    <div class="field"><label>Name</label><input id="siteName" type="text" placeholder="e.g. Hilton Sydney" /></div>
-    <div class="field"><label>Address (optional)</label><input id="siteAddress" type="text" placeholder="e.g. 488 George St, Sydney" /></div>
-    <div class="field"><label>Latitude</label><input id="siteLat" type="number" step="0.000001" placeholder="e.g. -33.8710" /></div>
-    <div class="field"><label>Longitude</label><input id="siteLng" type="number" step="0.000001" placeholder="e.g. 151.2073" /></div>
-    <div class="field"><label>Clock-in radius (metres) — 50–100m absorbs normal GPS drift</label>
-      <input id="siteRadius" type="number" min="20" max="2000" step="5" placeholder="75" />
-    </div>
-    <p class="err mono" id="addSiteErr"></p>
-    <div class="modal-actions">
-      <button class="cancel" onclick="closeAddSite()">Cancel</button>
-      <button class="save" onclick="saveSite()">Save site</button>
-    </div>
-  </div>
-</div>
-
-<div class="overlay" id="addStaffOverlay"
-  <div class="modal">
-    <h3>Add Crew</h3>
-    <div class="field"><label>Name</label><input id="newName" type="text" placeholder="e.g. Kenji" /></div>
-    <div class="field"><label>Phone (international, no +)</label><input id="newPhone" type="text" placeholder="e.g. 61412345678" /></div>
-    <div class="field"><label>Role</label>
-      <select id="newRole">
-        <option value="staff">staff</option>
-        <option value="manager">manager</option>
-        <option value="owner">owner</option>
-      </select>
-    </div>
-    <div class="field"><label>Section</label><input id="newDept" type="text" placeholder="e.g. kitchen" /></div>
-    <div class="field"><label>Hourly wage rate ($)</label><input id="newWage" type="number" min="0" step="0.01" placeholder="e.g. 32.50" /></div>
-    <p class="err mono" id="addStaffErr"></p>
-    <div class="modal-actions">
-      <button class="cancel" onclick="closeAddStaff()">Cancel</button>
-      <button class="save" onclick="saveStaff()">Save crew member</button>
-    </div>
-  </div>
-</div>
-
+<script src="/static/crewline.js"></script>
 <script>
-  const KEY_STORAGE = "hos_dashboard_key";
-  let managerKey = localStorage.getItem(KEY_STORAGE) || "";
+const $ = (id) => document.getElementById(id);
+const E = CL.esc;
+let data = null;
 
-  function submitKey() {
-    const val = document.getElementById("keyInput").value.trim();
-    if (!val) return;
-    managerKey = val;
-    localStorage.setItem(KEY_STORAGE, val);
-    loadDashboard();
-  }
+function staffOf(phone) { return (data.staff || []).find((s) => s.phone === phone); }
+function nameOf(phone) { const s = staffOf(phone); return s ? s.name : phone; }
+function deptOf(phone) { const s = staffOf(phone); return s ? (s.department ? cap(s.department) : (s.role || "")) : ""; }
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ""; }
+function effective(s) {
+  const inIso = (s.amended && s.amended.clockInTime) || s.clockIn.time;
+  const outIso = (s.amended && s.amended.clockOutTime) || (s.clockOut && s.clockOut.time);
+  return { inIso, outIso };
+}
+function onBreak(s) { const b = (s.breaks || [])[s.breaks ? s.breaks.length - 1 : -1]; return b && !b.end; }
 
-  /* ---------- Format helpers ---------- */
-  function fmtClock(iso) {
-    return new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" });
-  }
-  function fmtDay(iso) {
-    return new Date(iso).toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
-  }
-  function fmtDuration(ms) {
-    const totalMin = Math.max(0, Math.floor(ms / 60000));
-    return `${Math.floor(totalMin / 60)}h ${String(totalMin % 60).padStart(2, "0")}m`;
-  }
-  function staffName(staffList, phone) {
-    const s = staffList.find((x) => x.phone === phone);
-    return s ? s.name : phone;
-  }
-  function staffDept(staffList, phone) {
-    const s = staffList.find((x) => x.phone === phone);
-    return s ? (s.department || "—") : "—";
-  }
-  function esc(str) {
-    return String(str).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
+async function load() {
+  try { data = await CL.api("/api/dashboard"); } catch (e) { if (e.status !== 401) $("onShift").innerHTML = `<div class="err">${E(e.message)}</div>`; return; }
+  render();
+  loadPay(); loadRosterToday();
+}
 
-  /* ---------- Service clock ---------- */
-  setInterval(() => {
-    const el = document.getElementById("serviceClock");
-    if (el) el.textContent = new Date().toLocaleTimeString("en-AU", { hour12: false });
-  }, 1000);
+function render() {
+  const { shifts } = data;
+  const on = shifts.filter((s) => !s.clockOut && !s.clockIn.flaggedForReview).sort((a, b) => new Date(a.clockIn.time) - new Date(b.clockIn.time));
+  const flagged = shifts.filter((s) => !s.clockOut && s.clockIn.flaggedForReview);
+  $("onPill").textContent = `${on.length} on`;
+  $("flagPill").style.display = flagged.length ? "" : "none";
+  $("flagPill").textContent = `${flagged.length} to review`;
+  $("dateLine").textContent = new Date().toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
 
-  /* ---------- Section filter (scale: one-click chips, auto-hidden when trivial) ---------- */
-  let activeSection = "ALL";
-  let crewQuery = "";
+  $("onShift").innerHTML = on.length ? `<div class="tickets">${on.map((s) => {
+    const brk = onBreak(s);
+    return `<div class="ticket"><span class="clip"></span>
+      <div class="name ellipsis">${E(nameOf(s.staffPhone))}</div>
+      <div class="meta ellipsis">${E(deptOf(s.staffPhone))}${s.siteName ? " · " + E(s.siteName) : ""}</div>
+      <div class="big">${CL.dur(Date.now() - new Date(s.clockIn.time))}</div>
+      <div class="since">${brk ? '<span class="pill brk">on break</span>' : "on since " + CL.clock(s.clockIn.time)}</div>
+      <button class="btn sm" data-close="${E(s.shiftId)}" type="button">Clock out now</button>
+    </div>`; }).join("")}</div>`
+    : `<div class="card"><div class="empty">Nobody's on. Tickets land here the moment someone messages <b>in</b>.</div></div>`;
+  $("onShift").querySelectorAll("[data-close]").forEach((b) => (b.onclick = () => forceClose(b.dataset.close, b)));
 
-  function sectionsOf(staff) {
-    const set = new Set(staff.map((s) => (s.department || "").trim().toLowerCase()).filter(Boolean));
-    return [...set].sort();
-  }
-  function inSection(person) {
-    if (activeSection === "ALL") return true;
-    if (activeSection === "__none") return !(person.department || "").trim();
-    return (person.department || "").trim().toLowerCase() === activeSection;
-  }
-  function renderSectionChips(staff) {
-    const el = document.getElementById("sectionChips");
-    const sections = sectionsOf(staff);
-    const hasNone = staff.some((s) => !(s.department || "").trim());
-    // Small venue, one section (or none): chips add nothing — hide entirely.
-    if (sections.length + (hasNone ? 1 : 0) <= 1) {
-      el.innerHTML = "";
-      activeSection = "ALL";
-      return;
-    }
-    const chips = [{ key: "ALL", label: "All sections" }]
-      .concat(sections.map((s) => ({ key: s, label: s })))
-      .concat(hasNone ? [{ key: "__none", label: "no section" }] : []);
-    el.innerHTML = chips.map((c) =>
-      `<button class="s-chip${activeSection === c.key ? " active" : ""}" onclick="setSection('${esc(c.key)}')">${esc(c.label)}</button>`
-    ).join("");
-  }
-  function setSection(key) {
-    activeSection = key;
-    if (window._core) render({ ...window._core, venue: window._venue });
-  }
-  function crewSearchChanged() {
-    crewQuery = document.getElementById("crewSearch").value.trim().toLowerCase();
-    if (window._core) render({ ...window._core, venue: window._venue });
-  }
+  $("reviewSection").style.display = flagged.length ? "" : "none";
+  $("review").innerHTML = `<div class="tickets">${flagged.map((s) => `<div class="ticket flagged"><span class="clip"></span>
+      <div class="name ellipsis">${E(nameOf(s.staffPhone))}</div>
+      <div class="meta">📍 ${E(s.clockIn.distanceMeters)}m from ${E(s.siteName || "the venue")}</div>
+      <div class="since" style="margin-top:8px">tried at ${CL.clock(s.clockIn.time)}</div>
+      <div class="btn-row" style="margin-top:10px"><button class="btn sm ok" data-ok="${E(s.shiftId)}" type="button">Approve</button><button class="btn sm danger" data-cut="${E(s.shiftId)}" type="button">Cut</button></div>
+    </div>`).join("")}</div>`;
+  $("review").querySelectorAll("[data-ok]").forEach((b) => (b.onclick = () => review(b.dataset.ok, true, b)));
+  $("review").querySelectorAll("[data-cut]").forEach((b) => (b.onclick = () => review(b.dataset.cut, false, b)));
+}
 
-  /* ---------- Load + render core ---------- */
-  async function loadDashboard() {
-    document.getElementById("gateErr").textContent = "";
-    let data;
-    try {
-      const res = await fetch(`/api/dashboard?key=${encodeURIComponent(managerKey)}`);
-      if (res.status === 401) {
-        document.getElementById("gateErr").textContent = "That key doesn't open the pass — check it and try again.";
-        return;
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      data = await res.json();
-    } catch (err) {
-      document.getElementById("gateErr").textContent = "Can't reach the server — check the connection and try again.";
-      return;
-    }
+async function forceClose(id, btn) {
+  if (!CL.confirm("Clock this person out now? Their shift closes at the current time.")) return;
+  btn.disabled = true;
+  try { await CL.api(`/api/shifts/${encodeURIComponent(id)}/close`, { method: "POST" }); CL.toast("Clocked out"); load(); }
+  catch (e) { btn.disabled = false; CL.toast("Couldn't close that shift: " + e.message); }
+}
+async function review(id, approve, btn) {
+  btn.closest(".ticket").querySelectorAll("button").forEach((b) => (b.disabled = true));
+  try { await CL.api(`/api/shifts/${encodeURIComponent(id)}/review`, { method: "POST", body: { approve } }); CL.toast(approve ? "Approved — they're on the board" : "Cut"); load(); }
+  catch (e) { btn.closest(".ticket").querySelectorAll("button").forEach((b) => (b.disabled = false)); CL.toast("That didn't save — try again."); }
+}
 
-    document.getElementById("gate").style.display = "none";
-    if (!window._venueNamed) {
-      window._venueNamed = true;
-      fetch(`/api/me?key=${encodeURIComponent(managerKey)}`).then((r) => (r.ok ? r.json() : null)).then((me) => {
-        if (me && me.name) document.getElementById("venueName").textContent = me.name;
-      }).catch(() => {});
-    }
-    const dash = document.getElementById("dashboard");
-    dash.style.display = "block";
-    render(data);
-    loadPenalties();
-    loadWeekNumbers();
-    requestAnimationFrame(() => document.querySelector(".lit-target").classList.add("lit"));
-  }
+async function loadPay() {
+  try {
+    const w = await CL.api("/api/pay/week");
+    const t = w.totals, hasRev = t.expectedRevenue > 0;
+    const verdict = !hasRev ? `<span class="muted">Add a revenue forecast on the Pay page</span>`
+      : t.status === "ok" ? `<span class="ok" style="font-weight:700">✓ ${CL.money(t.variance)} under budget</span>`
+      : `<span style="font-weight:700;color:var(--${t.status === "warn" ? "amber" : "red"})">${t.status === "warn" ? "!" : "✕"} ${CL.money(-t.variance)} over budget</span>`;
+    const sm = Math.max(w.settings.targets.totalPct * 1.35, (t.pct || 0) * 1.05, 10);
+    $("payCard").innerHTML = `<div class="paymini">
+        <div class="grow"><div class="big">${CL.money(t.projected)} <small>${hasRev ? "of " + CL.money(t.budget) + " budget" : "payroll"}</small></div>
+          <div style="margin-top:6px;font-size:14px">${verdict}</div></div>
+        <div class="right mono" style="font-weight:800;font-size:22px">${hasRev ? CL.pct(t.pct) : ""}</div></div>
+      <div class="gauge ${t.status}"><div class="fill" style="width:${hasRev ? Math.min(100, (t.pct / sm) * 100) : 0}%"></div>${hasRev ? `<div class="tick" style="left:${(w.settings.targets.totalPct / sm) * 100}%"></div>` : ""}</div>
+      <div class="hint" style="margin-top:4px">${CL.range(w.weekStart, w.weekEnd)} · kitchen ${CL.pct(w.departments.kitchen.pct)} · service ${CL.pct(w.departments.service.pct)}${w.flags.some((f) => f.level === "over") ? ' · <span style="color:var(--red);font-weight:700">overtime flagged</span>' : ""}</div>`;
+  } catch (e) { $("payCard").innerHTML = `<div class="empty">${E(e.message)}</div>`; }
+}
 
-  /* ---------- Sites: where the clock-in geofence lives ---------- */
-  let sites = [];
-  let editingSiteId = null;
+async function loadRosterToday() {
+  const today = CL.today();
+  try {
+    const r = await CL.api(`/api/core/roster?weekStart=${CL.mondayOf(today)}`);
+    const todays = (r.shifts || []).filter((s) => s.date === today).sort((a, b) => a.start.localeCompare(b.start));
+    if (!todays.length) { $("rosterSection").style.display = "none"; return; }
+    const live = data.shifts.filter((s) => !s.clockOut);
+    $("rosterSection").style.display = "";
+    $("rosterToday").innerHTML = todays.map((s) => {
+      const nm = nameOf(s.workerId);
+      const on = live.find((x) => x.staffPhone === s.workerId);
+      const done = data.shifts.find((x) => x.staffPhone === s.workerId && x.clockOut && effective(x).inIso.slice(0, 10) === today);
+      const nowM = new Date().getHours() * 60 + new Date().getMinutes();
+      const [sh, sm] = s.start.split(":").map(Number);
+      const startM = sh * 60 + sm;
+      let pill = on ? `<span class="pill ok">on</span>` : done ? `<span class="pill">done</span>` : nowM > startM + 10 ? `<span class="pill warn">${Math.round((nowM - startM))}m late</span>` : `<span class="pill">${s.published ? "rostered" : "unpublished"}</span>`;
+      return `<div class="row rost"><div class="avatar">${CL.initials(nm)}</div><div class="grow"><div class="t">${E(nm)}</div><div class="s">${s.start}–${s.end}${s.role ? " · " + E(s.role) : ""}</div></div>${pill}</div>`;
+    }).join("");
+  } catch { $("rosterSection").style.display = "none"; }
+}
 
-  function activeSites() {
-    return sites.filter((s) => s.active !== false);
-  }
-  function siteName(siteId) {
-    const site = sites.find((s) => s.siteId === siteId);
-    return site ? site.name : "";
-  }
-  /** Only worth showing site labels on the board once there's more than one. */
-  function siteChoiceMatters() {
-    return activeSites().length > 1;
-  }
-  /**
-   * A shift ticket's second line: the person's section, and the building when
-   * there's more than one to tell apart. One-site venues read as before.
-   */
-  function shiftSubtitle(staff, shift) {
-    const dept = staffDept(staff, shift.staffPhone);
-    if (!siteChoiceMatters() || !shift.siteName) return dept;
-    return dept && dept !== "—" ? `${dept} · ${shift.siteName}` : shift.siteName;
-  }
-
-  function renderSites() {
-    document.getElementById("sitesBody").innerHTML = sites.map((s) => {
-      const g = s.geofence;
-      return `
-      <tr${s.active === false ? ' style="opacity:0.5;"' : ""}>
-        <td>${esc(s.name)}${s.active === false ? " <span class=\"tag\">INACTIVE</span>" : ""}</td>
-        <td>${esc(s.address || "—")}</td>
-        <td class="mono">${g ? `${g.lat.toFixed(5)}, ${g.lng.toFixed(5)}` : "—"}</td>
-        <td>${g ? `${g.radiusMeters}m` : "—"}</td>
-        <td style="text-align:right;">
-          <button class="del-btn" title="Edit ${esc(s.name)}" onclick="openEditSite('${esc(s.siteId)}')">✎</button>
-          <button class="del-btn" title="${s.active === false ? "Reactivate" : "Deactivate"} ${esc(s.name)}" onclick="toggleSiteActive('${esc(s.siteId)}', ${s.active === false})">${s.active === false ? "↺" : "⏸"}</button>
-        </td>
-      </tr>`;
-    }).join("") ||
-      `<tr><td colspan="5" style="color: var(--dim);">No sites yet — add the building you send people to, or clock-ins can't be checked against anything.</td></tr>`;
-
-    renderSiteWarning();
-  }
-
-  function renderSiteWarning() {
-    const el = document.getElementById("siteWarning");
-    if (sites.length === 0) {
-      el.innerHTML = window._venue && window._venue.geofence
-        ? `<span class="fail">No sites yet — clock-ins are still falling back to the old venue-wide radius. Add a site to fix it.</span>`
-        : `<span class="fail">No sites and no venue location — nobody can clock in until you add a site.</span>`;
-      return;
-    }
-    const withGeofence = activeSites().filter((s) => s.geofence);
-    if (withGeofence.length === 0) {
-      el.innerHTML = `<span class="fail">No active site has a location set — nobody can clock in.</span>`;
-      return;
-    }
-    el.textContent = "";
-  }
-
-
-  function fillSiteSelect(sel, selectedId) {
-    const options = activeSites();
-    sel.innerHTML =
-      `<option value="">— no site —</option>` +
-      options.map((s) => `<option value="${esc(s.siteId)}"${s.siteId === selectedId ? " selected" : ""}>${esc(s.name)}</option>`).join("");
-  }
-
-  function openAddSite() {
-    editingSiteId = null;
-    document.getElementById("addSiteTitle").textContent = "Add Site";
-    document.getElementById("siteName").value = "";
-    document.getElementById("siteAddress").value = "";
-    document.getElementById("siteLat").value = "";
-    document.getElementById("siteLng").value = "";
-    document.getElementById("siteRadius").value = "75";
-    document.getElementById("addSiteErr").textContent = "";
-    document.getElementById("addSiteOverlay").classList.add("open");
-  }
-  function openEditSite(siteId) {
-    const site = sites.find((s) => s.siteId === siteId);
-    if (!site) return;
-    editingSiteId = siteId;
-    document.getElementById("addSiteTitle").textContent = `Edit ${site.name}`;
-    document.getElementById("siteName").value = site.name || "";
-    document.getElementById("siteAddress").value = site.address || "";
-    document.getElementById("siteLat").value = site.geofence ? site.geofence.lat : "";
-    document.getElementById("siteLng").value = site.geofence ? site.geofence.lng : "";
-    document.getElementById("siteRadius").value = site.geofence ? site.geofence.radiusMeters : 75;
-    document.getElementById("addSiteErr").textContent = "";
-    document.getElementById("addSiteOverlay").classList.add("open");
-  }
-  function closeAddSite() {
-    document.getElementById("addSiteOverlay").classList.remove("open");
-    editingSiteId = null;
-  }
-  async function saveSite() {
-    const err = document.getElementById("addSiteErr");
-    const name = document.getElementById("siteName").value.trim();
-    const lat = Number(document.getElementById("siteLat").value);
-    const lng = Number(document.getElementById("siteLng").value);
-    const radiusMeters = Number(document.getElementById("siteRadius").value);
-    if (!name) { err.textContent = "A name is needed."; return; }
-    if (!isFinite(lat) || lat < -90 || lat > 90) { err.textContent = "Latitude must be between -90 and 90."; return; }
-    if (!isFinite(lng) || lng < -180 || lng > 180) { err.textContent = "Longitude must be between -180 and 180."; return; }
-    if (!isFinite(radiusMeters) || radiusMeters < 20 || radiusMeters > 2000) {
-      err.textContent = "Radius must be between 20 and 2000 metres."; return;
-    }
-    try {
-      const res = await fetch(`/api/sites?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          // Editing keeps the original id — renaming a site must not orphan
-          // the shifts and assignments that already reference it.
-          ...(editingSiteId ? { siteId: editingSiteId } : {}),
-          name,
-          address: document.getElementById("siteAddress").value.trim() || null,
-          geofence: { lat, lng, radiusMeters },
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) { err.textContent = body.error || "Couldn't save that site."; return; }
-      closeAddSite();
-      await loadSites();
-      } catch {
-      err.textContent = "Can't reach the server — try again.";
-    }
-  }
-  async function toggleSiteActive(siteId, active) {
-    try {
-      await fetch(`/api/sites/${encodeURIComponent(siteId)}/active?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active }),
-      });
-      await loadSites();
-      } catch { /* the next load will show the real state */ }
-  }
-  async function loadSites() {
-    try {
-      const res = await fetch(`/api/sites?key=${encodeURIComponent(managerKey)}`);
-      if (!res.ok) return;
-      const body = await res.json();
-      sites = body.sites || [];
-      renderSites();
-    } catch { /* leave the last known list on screen */ }
-  }
-
-  function render(data) {
-    const { staff, shifts, venue } = data;
-    window._core = { staff, shifts };
-    window._venue = venue;
-    if (Array.isArray(data.sites)) sites = data.sites;
-    renderSectionChips(staff);
-    document.getElementById("venueLine").textContent =
-      `${venue?.name || "Venue"} · ${new Date().toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short" })}`;
-    renderSites();
-
-    const bySection = (s) => {
-      const person = staff.find((x) => x.phone === s.staffPhone);
-      return person ? inSection(person) : true;
-    };
-    const onShift = shifts.filter((s) => !s.clockOut && !s.clockIn.flaggedForReview && bySection(s));
-    const flagged = shifts.filter((s) => !s.clockOut && s.clockIn.flaggedForReview && bySection(s));
-    const history = shifts
-      .filter((s) => s.clockOut && !s.clockOut.denied)
-      .sort((a, b) => new Date(b.clockIn.time) - new Date(a.clockIn.time))
-      .slice(0, 25);
-
-    document.getElementById("onShiftCount").textContent = `${onShift.length} on`;
-    const reviewBadge = document.getElementById("reviewBadge");
-    if (flagged.length > 0) {
-      reviewBadge.style.display = "inline-block";
-      document.getElementById("reviewCount").textContent = `${flagged.length} needs a look`;
-    } else {
-      reviewBadge.style.display = "none";
-    }
-
-    // The Pass
-    const onShiftList = document.getElementById("onShiftList");
-    if (onShift.length === 0) {
-      onShiftList.innerHTML = `<div class="empty">Nobody's on. Tickets land here the moment someone texts "in".</div>`;
-    } else if (onShift.length > 12) {
-      // Auto-compact at scale — no toggle, the board just adapts.
-      onShiftList.innerHTML = `<div class="compact-list">${onShift.map((s) => {
-        const elapsed = Date.now() - new Date(s.clockIn.time).getTime();
-        return `
-          <div class="compact-row">
-            <span class="c-name">${esc(staffName(staff, s.staffPhone))}</span>
-            <span class="c-dept">${esc(shiftSubtitle(staff, s))}</span>
-            <span class="c-time">⏱ ${fmtDuration(elapsed)}</span>
-            <button class="del-btn" title="Clock out now" onclick="forceClose('${esc(s.shiftId)}', this)">⏻</button>
-          </div>`;
-      }).join("")}</div>`;
-    } else {
-      onShiftList.innerHTML = `<div class="tickets">${onShift.map((s) => {
-        const elapsed = Date.now() - new Date(s.clockIn.time).getTime();
-        return `
-          <div class="ticket">
-            <span class="clip"></span>
-            <div class="name">${esc(staffName(staff, s.staffPhone))}</div>
-            <div class="dept">${esc(shiftSubtitle(staff, s))}</div>
-            <div class="elapsed">⏱ ${fmtDuration(elapsed)}</div>
-            <div class="since">on since ${fmtClock(s.clockIn.time)}</div>
-            <div class="actions"><button class="approve" onclick="forceClose('${esc(s.shiftId)}', this)">Clock out now</button></div>
-          </div>`;
-      }).join("")}</div>`;
-    }
-
-    // Needs a look
-    const reviewList = document.getElementById("reviewList");
-    if (flagged.length === 0) {
-      reviewList.innerHTML = `<div class="empty">All clear. Out-of-range clock-ins land here for a decision.</div>`;
-    } else {
-      reviewList.innerHTML = `<div class="tickets">${flagged.map((s) => `
-        <div class="ticket">
-          <span class="clip"></span>
-          <span class="tag">FLAGGED</span>
-          <div class="name">${esc(staffName(staff, s.staffPhone))}</div>
-          <div class="dept">${esc(staffDept(staff, s.staffPhone))}</div>
-          <div class="divider"></div>
-          <div class="dist">📍 ${esc(s.clockIn.distanceMeters)}m from ${esc(s.siteName || "the venue")}</div>
-          <div class="since">tried at ${fmtClock(s.clockIn.time)}</div>
-          <div class="actions">
-            <button class="approve" onclick="review('${esc(s.shiftId)}', true, this)">Approve</button>
-            <button class="cut" onclick="review('${esc(s.shiftId)}', false, this)">Cut</button>
-          </div>
-        </div>`).join("")}</div>`;
-    }
-
-    // Crew table
-    const crewFiltered = staff.filter((s) =>
-      inSection(s) &&
-      (!crewQuery || s.name.toLowerCase().includes(crewQuery) || String(s.phone).includes(crewQuery))
-    );
-    document.getElementById("staffBody").innerHTML = crewFiltered.map((s) => `
-      <tr>
-        <td>${esc(s.name)}</td>
-        <td>${esc(s.role)}</td>
-        <td>${esc(s.department || "—")}</td>
-        <td>${esc(s.phone)}</td>
-        <td>${s.wageRate != null ? "$" + Number(s.wageRate).toFixed(2) : "—"}</td>
-        <td style="text-align:right;"><button class="del-btn" title="Edit ${esc(s.name)}" onclick="openEditStaff('${esc(s.phone)}')">✎</button></td>
-      </tr>`).join("") ||
-      `<tr><td colspan="6" style="color: var(--dim);">${staff.length ? "No crew match that filter." : "No crew yet — add your first crew member above."}</td></tr>`;
-
-    // Week hours bars
-    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const hoursByPhone = {};
-    shifts.forEach((s) => {
-      if (!s.clockOut || s.clockOut.denied) return;
-      if (new Date(s.clockIn.time).getTime() < weekAgo) return;
-      hoursByPhone[s.staffPhone] = (hoursByPhone[s.staffPhone] || 0) + shiftMinusBreaks(s);
-    });
-    const allEntries = Object.entries(hoursByPhone).sort((a, b) => b[1] - a[1]);
-    const entries = allEntries.slice(0, 15);
-    const maxMs = Math.max(...entries.map((e) => e[1]), 1);
-    const capNote = allEntries.length > 15
-      ? `<p class="scale-note">Top 15 of ${allEntries.length} crew by hours.</p>` : "";
-    document.getElementById("hoursList").innerHTML = entries.length === 0 ? "" :
-      capNote + entries.map(([phone, ms]) => `
-        <div class="hours-row">
-          <div class="hours-name">${esc(staffName(staff, phone))}</div>
-          <div class="hours-track"><div class="hours-fill" style="width:${Math.round((ms / maxMs) * 100)}%;"></div></div>
-          <div class="hours-val">${fmtDuration(ms)}</div>
-        </div>`).join("");
-
-    // Closed dockets
-    document.getElementById("historyBody").innerHTML = history.map((s) => {
-      const eff = effective(s);
-      const amendedTag = s.amended
-        ? ` <span title="Original: ${fmtClock(s.clockIn.time)}–${fmtClock(s.clockOut.time)}" style="color: var(--lamp); cursor: help;">✎ amended</span>`
-        : "";
-      return `
-      <tr>
-        <td>${esc(staffName(staff, s.staffPhone))}${amendedTag}</td>
-        <td>${esc(s.siteName || "—")}</td>
-        <td>${fmtDay(eff.inIso)}</td>
-        <td>${fmtClock(eff.inIso)}</td>
-        <td>${fmtClock(eff.outIso)}</td>
-        <td class="dur">${fmtDuration(shiftMinusBreaks(s))}</td>
-        <td style="text-align:right;"><button class="del-btn" title="Amend this timesheet" onclick="openAmend('${esc(s.shiftId)}')">✎</button></td>
-      </tr>`;
-    }).join("") || `<tr><td colspan="7" style="color: var(--dim);">No closed shifts yet — they print here after the first clock-out.</td></tr>`;
-  }
-
-  /** Effective (amended-aware) shift times — originals stay for comparison. */
-  function effective(shift) {
-    const inIso = (shift.amended && shift.amended.clockInTime) || shift.clockIn.time;
-    const outIso = (shift.amended && shift.amended.clockOutTime) || (shift.clockOut && shift.clockOut.time);
-    const breakMs = shift.amended && shift.amended.breakMinutes != null
-      ? shift.amended.breakMinutes * 60000
-      : (shift.breaks || []).reduce((sum, b) => (b.end ? sum + (new Date(b.end) - new Date(b.start)) : sum), 0);
-    return { inIso, outIso, breakMs };
-  }
-  function shiftMinusBreaks(shift) {
-    const eff = effective(shift);
-    return Math.max(0, new Date(eff.outIso) - new Date(eff.inIso) - eff.breakMs);
-  }
-
-  async function forceClose(shiftId, btnEl) {
-    if (!confirm("Clock this person out now? Their shift closes at the current time.")) return;
-    btnEl.disabled = true;
-    try {
-      const res = await fetch(`/api/shifts/${encodeURIComponent(shiftId)}/close?key=${encodeURIComponent(managerKey)}`, { method: "POST" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await loadDashboard();
-    } catch (err) {
-      btnEl.disabled = false;
-      alert("Couldn't close that shift: " + (err.message || "unknown error") +
-        ". If this says HTTP 404, the server is running an old server.js — redeploy it.");
-    }
-  }
-
-  /* ---------- Timesheet amendments ---------- */
-  let amendTarget = null;
-  function toLocalInput(iso) {
-    const d = new Date(iso);
-    const p = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-  }
-  function openAmend(shiftId) {
-    const s = (window._core?.shifts || []).find((x) => x.shiftId === shiftId);
-    if (!s || !s.clockOut) return;
-    amendTarget = shiftId;
-    const eff = effective(s);
-    const origBreakMin = Math.round(
-      (s.breaks || []).reduce((sum, b) => (b.end ? sum + (new Date(b.end) - new Date(b.start)) : sum), 0) / 60000
-    );
-    document.getElementById("amendOriginal").innerHTML =
-      `Original (kept for the audit trail):<br>` +
-      `${fmtDay(s.clockIn.time)} · in ${fmtClock(s.clockIn.time)} · out ${fmtClock(s.clockOut.time)} · break ${origBreakMin}m` +
-      (s.clockOut.forcedByManager ? " · closed by manager" : "");
-    document.getElementById("amendIn").value = toLocalInput(eff.inIso);
-    document.getElementById("amendOut").value = toLocalInput(eff.outIso);
-    document.getElementById("amendBreak").value = Math.round(eff.breakMs / 60000);
-    document.getElementById("amendErr").textContent = "";
-    document.getElementById("amendOverlay").classList.add("open");
-  }
-  function closeAmend() {
-    document.getElementById("amendOverlay").classList.remove("open");
-    amendTarget = null;
-  }
-  async function saveAmend() {
-    const errEl = document.getElementById("amendErr");
-    const inVal = document.getElementById("amendIn").value;
-    const outVal = document.getElementById("amendOut").value;
-    const breakMinutes = Number(document.getElementById("amendBreak").value || 0);
-    if (!inVal || !outVal) { errEl.textContent = "Both times are needed."; return; }
-    const inIso = new Date(inVal).toISOString();
-    const outIso = new Date(outVal).toISOString();
-    if (new Date(outIso) <= new Date(inIso)) { errEl.textContent = "Clock out must be after clock in."; return; }
-    try {
-      const res = await fetch(`/api/shifts/${encodeURIComponent(amendTarget)}/amend?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ clockInTime: inIso, clockOutTime: outIso, breakMinutes }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-      closeAmend();
-      await loadDashboard();
-    } catch (err) {
-      errEl.textContent = err.message || "Couldn't save — try again.";
-    }
-  }
-
-  async function review(shiftId, approve, btnEl) {
-    const card = btnEl.closest(".ticket");
-    card.querySelectorAll("button").forEach((b) => (b.disabled = true));
-    try {
-      const res = await fetch(`/api/shifts/${encodeURIComponent(shiftId)}/review?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ approve }),
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await loadDashboard();
-    } catch (err) {
-      card.querySelectorAll("button").forEach((b) => (b.disabled = false));
-      alert("That didn't save — try again.");
-    }
-  }
-
-  /* ---------- Add crew ---------- */
-  function openAddStaff() {
-    document.getElementById("addStaffErr").textContent = "";
-    ["newName", "newPhone", "newDept", "newWage"].forEach((id) => (document.getElementById(id).value = ""));
-    document.getElementById("newRole").value = "staff";
-    document.getElementById("newPhone").readOnly = false;
-    document.getElementById("addStaffOverlay").classList.add("open");
-  }
-  function openEditStaff(phone) {
-    const s = (window._core?.staff || []).find((x) => x.phone === phone);
-    if (!s) return;
-    document.getElementById("addStaffErr").textContent = "";
-    document.getElementById("newName").value = s.name || "";
-    document.getElementById("newPhone").value = s.phone;
-    document.getElementById("newPhone").readOnly = true; // phone is the record ID
-    document.getElementById("newRole").value = s.role || "staff";
-    document.getElementById("newDept").value = s.department || "";
-    document.getElementById("newWage").value = s.wageRate != null ? s.wageRate : "";
-    document.getElementById("addStaffOverlay").classList.add("open");
-  }
-  function closeAddStaff() {
-    document.getElementById("addStaffOverlay").classList.remove("open");
-  }
-  async function saveStaff() {
-    const name = document.getElementById("newName").value.trim();
-    const phone = document.getElementById("newPhone").value.trim().replace(/[^0-9]/g, "");
-    const role = document.getElementById("newRole").value;
-    const department = document.getElementById("newDept").value.trim();
-    const wageRaw = document.getElementById("newWage").value.trim();
-    const wageRate = wageRaw === "" ? null : Number(wageRaw);
-    const errEl = document.getElementById("addStaffErr");
-    if (!name || !phone) {
-      errEl.textContent = "Name and phone are both needed.";
-      return;
-    }
-    try {
-      const res = await fetch(`/api/staff?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, phone, role, department, wageRate }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        errEl.textContent = json.error || "That didn't save — try again.";
-        return;
-      }
-      closeAddStaff();
-      await loadDashboard();
-    } catch (err) {
-      errEl.textContent = "Can't reach the server — try again.";
-    }
-  }
-
-  /* ---------- This week's numbers (P&L inputs) ---------- */
-  function mondayOf(date) {
-    const d = new Date(date);
-    const day = d.getDay();
-    d.setDate(d.getDate() - ((day + 6) % 7));
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  }
-  async function loadWeekNumbers() {
-    const input = document.getElementById("numWeek");
-    const week = mondayOf(input.value ? new Date(input.value + "T12:00:00") : new Date());
-    input.value = week;
-    try {
-      const res = await fetch(`/api/reports/pnl?week=${week}&key=${encodeURIComponent(managerKey)}`);
-      const r = await res.json();
-      if (!res.ok) throw new Error(r.error || "load failed");
-      document.getElementById("revenueInput").value = r.revenue ?? "";
-      document.getElementById("openingStock").value = r.openingStock ?? "";
-      document.getElementById("closingStock").value = r.closingStock ?? "";
-      document.getElementById("numStatus").textContent = r.revenue
-        ? `Labour ${r.labourPct ?? "–"}% · Food ${r.foodPct ?? "–"}% · Prime ${r.primePct ?? "–"}%  (labour $${r.labourCost}, purchases $${r.purchases})`
-        : `Labour $${r.labourCost} · purchases $${r.purchases} — add a revenue forecast to see percentages.`;
-    } catch (e) {
-      document.getElementById("numStatus").textContent = "Couldn't load this week's numbers.";
-    }
-  }
-  async function saveWeekNumbers() {
-    const week = document.getElementById("numWeek").value;
-    const val = (id) => { const v = document.getElementById(id).value; return v === "" ? null : Number(v); };
-    try {
-      const res = await fetch(`/api/weeks/${week}?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ revenueForecast: val("revenueInput"), openingStock: val("openingStock"), closingStock: val("closingStock") }),
-      });
-      if (!res.ok) throw new Error();
-      loadWeekNumbers();
-    } catch {
-      document.getElementById("numStatus").textContent = "Couldn't save — try again.";
-    }
-  }
-
-  /* ---------- Penalty settings ---------- */
-  const PRESETS = {
-    AU: { saturday: 1.25, sunday: 1.5, publicHoliday: 2.25, overtimeWeeklyHours: 38, overtimeMultiplier: 1.5 },
-    US: { saturday: 1.0, sunday: 1.0, publicHoliday: 1.0, overtimeWeeklyHours: 40, overtimeMultiplier: 1.5 },
-  };
-  let penaltyRules = null;
-  async function loadPenalties() {
-    try {
-      const res = await fetch(`/api/settings/penalties?key=${encodeURIComponent(managerKey)}`);
-      if (!res.ok) return;
-      const json = await res.json();
-      penaltyRules = json.penaltyRules;
-      fillPenaltyForm();
-    } catch (err) { /* non-fatal */ }
-  }
-  function fillPenaltyForm() {
-    const r = penaltyRules || { ...PRESETS.US, publicHolidays: [], preset: "custom" };
-    document.getElementById("penSat").value = r.saturday;
-    document.getElementById("penSun").value = r.sunday;
-    document.getElementById("penPH").value = r.publicHoliday;
-    document.getElementById("penOTh").value = r.overtimeWeeklyHours;
-    document.getElementById("penOTx").value = r.overtimeMultiplier;
-    document.getElementById("penPHDates").value = (r.publicHolidays || []).join(", ");
-    document.getElementById("presetAU").classList.toggle("active", r.preset === "AU");
-    document.getElementById("presetUS").classList.toggle("active", r.preset === "US");
-    if (r.preset) activePreset = r.preset;
-  }
-  let activePreset = "custom";
-  function applyPreset(which) {
-    const p = PRESETS[which];
-    document.getElementById("penSat").value = p.saturday;
-    document.getElementById("penSun").value = p.sunday;
-    document.getElementById("penPH").value = p.publicHoliday;
-    document.getElementById("penOTh").value = p.overtimeWeeklyHours;
-    document.getElementById("penOTx").value = p.overtimeMultiplier;
-    activePreset = which;
-    document.getElementById("presetAU").classList.toggle("active", which === "AU");
-    document.getElementById("presetUS").classList.toggle("active", which === "US");
-    document.getElementById("penStatus").innerHTML =
-      `<span style="color: var(--dim);">Preset filled — review the numbers, then save.</span>`;
-  }
-  async function savePenalties() {
-    const statusEl = document.getElementById("penStatus");
-    const publicHolidays = document.getElementById("penPHDates").value
-      .split(",").map((s) => s.trim()).filter(Boolean);
-    const body = {
-      saturday: Number(document.getElementById("penSat").value),
-      sunday: Number(document.getElementById("penSun").value),
-      publicHoliday: Number(document.getElementById("penPH").value),
-      overtimeWeeklyHours: Number(document.getElementById("penOTh").value),
-      overtimeMultiplier: Number(document.getElementById("penOTx").value),
-      publicHolidays,
-      preset: activePreset,
-    };
-    try {
-      const res = await fetch(`/api/settings/penalties?key=${encodeURIComponent(managerKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Save failed");
-      penaltyRules = json.penaltyRules;
-      statusEl.innerHTML = `<span class="ok">Saved — costing updated.</span>`;
-    } catch (err) {
-      statusEl.innerHTML = `<span class="fail">${esc(err.message || "Save failed.")}</span>`;
-    }
-  }
-
-  /* ---------- Reports ---------- */
-  function csvEscape(v) {
-    if (v == null) return "";
-    const s = String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  }
-  function downloadCsv(filename, rows) {
-    const csv = rows.map((r) => r.map(csvEscape).join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
-  }
-  async function downloadPayroll() {
-    const from = document.getElementById("repFrom").value;
-    const to = document.getElementById("repTo").value;
-    const statusEl = document.getElementById("repStatus");
-    if (!from || !to) { statusEl.innerHTML = `<span class="fail">Pick both dates.</span>`; return; }
-    statusEl.textContent = "Building…";
-    try {
-      const res = await fetch(`/api/reports/payroll?from=${from}&to=${to}&key=${encodeURIComponent(managerKey)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Report failed");
-      const rows = [
-        ["Staff", "Date", "Clock in", "Clock out", "Break (min)", "Hours", "Rate", "Day multiplier", "Pay", "Amended", "Original in", "Original out", "Closed by manager"],
-        ...json.rows.map((r) => [
-          r.name, r.date,
-          new Date(r.clockIn).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }),
-          new Date(r.clockOut).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }),
-          r.breakMinutes, r.hours,
-          r.rate != null ? r.rate.toFixed ? r.rate.toFixed(2) : r.rate : "MISSING",
-          r.multiplier, r.pay != null ? r.pay : "—",
-          r.amended ? "YES" : "",
-          r.originalClockIn ? new Date(r.originalClockIn).toLocaleString("en-AU") : "",
-          r.originalClockOut ? new Date(r.originalClockOut).toLocaleString("en-AU") : "",
-          r.forcedByManager ? "YES" : "",
-        ]),
-        [],
-        ["Weekly overtime premiums"],
-        ["Staff", "Week starting", "OT hours", "Premium"],
-        ...json.otRows.map((o) => [o.name, o.weekStart, o.overtimeHours, o.premium]),
-        [],
-        ["Totals per staff"],
-        ["Staff", "Hours", "Pay", "Note"],
-        ...Object.values(json.perStaff).map((t) => [
-          t.name, t.hours.toFixed(2), t.pay.toFixed(2), t.missingRate ? "some shifts missing a wage rate" : "",
-        ]),
-        [],
-        ["GRAND TOTAL", json.grand.hours.toFixed(2), json.grand.pay.toFixed(2),
-          json.rulesApplied ? "penalty rules applied" : "NO penalty rules configured"],
-      ];
-      downloadCsv(`payroll_${from}_to_${to}.csv`, rows);
-      statusEl.innerHTML = `<span class="ok">Downloaded.</span>`;
-    } catch (err) {
-      statusEl.innerHTML = `<span class="fail">${esc(err.message || "Report failed.")}</span>`;
-    }
-  }
-  async function downloadPnl() {
-    const from = document.getElementById("repFrom").value;
-    const statusEl = document.getElementById("repStatus");
-    if (!from) { statusEl.innerHTML = `<span class="fail">Pick a From date — its week is reported.</span>`; return; }
-    statusEl.textContent = "Building…";
-    try {
-      const week = mondayOf(new Date(from + "T12:00:00"));
-      const res = await fetch(`/api/reports/pnl?week=${week}&key=${encodeURIComponent(managerKey)}`);
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Report failed");
-      const rows = [
-        ["Weekly P&L", `week starting ${json.week}`],
-        [],
-        ["Revenue (forecast/entered)", json.revenue != null ? json.revenue : "not entered"],
-        ["Labour cost (actual, amended-aware)", json.labourCost],
-        [],
-        ["Labour %", json.labourPct != null ? json.labourPct : "needs revenue"],
-      ];
-      downloadCsv(`pnl_week_${json.week}.csv`, rows);
-      statusEl.innerHTML = `<span class="ok">Downloaded.</span>`;
-    } catch (err) {
-      statusEl.innerHTML = `<span class="fail">${esc(err.message || "Report failed.")}</span>`;
-    }
-  }
-
-  /* ---------- Boot ---------- */
-  (function initReportRange() {
-    const lastMon = new Date(mondayOf(new Date()) + "T12:00:00");
-    lastMon.setDate(lastMon.getDate() - 7);
-    const lastSun = new Date(lastMon);
-    lastSun.setDate(lastSun.getDate() + 6);
-    document.getElementById("repFrom").value = lastMon.toISOString().slice(0, 10);
-    document.getElementById("repTo").value = lastSun.toISOString().slice(0, 10);
-  })();
-  document.getElementById("keyInput").addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitKey();
-  });
-  if (managerKey) loadDashboard();
-  // Two minutes, not thirty seconds: each refresh is a Firestore read of recent shifts, and a tab left open all day adds up.
-  setInterval(() => { if (managerKey && document.getElementById("dashboard").style.display !== "none") loadDashboard(); }, 120000);
+/* ---------- boot ---------- */
+["payLink", "payCard"].forEach((id) => ($(id).href = CL.url("/pay")));
+$("rosterLink").href = CL.url("/roster");
+$("qCrew").href = CL.url("/more") + "#crew"; $("qSites").href = CL.url("/more") + "#sites"; $("qHist").href = CL.url("/more") + "#history";
+setInterval(() => { $("clock").textContent = new Date().toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit" }); }, 1000);
+CL.tabbar("today"); CL.topbar();
+CL.requireKey(() => {
+  CL.venueName().then((me) => { if (me && me.name) $("venueName").textContent = me.name; });
+  load();
+  setInterval(() => { if (!document.hidden) load(); }, 120000);
+});
 </script>
 </body>
 </html>

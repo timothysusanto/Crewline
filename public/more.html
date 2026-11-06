@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Crewline">
+<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171B" media="(prefers-color-scheme: dark)">
+<title>More — Crewline</title>
+<link rel="stylesheet" href="/static/crewline.css">
+<style>
+  .search { width: 100%; min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); font-size: 16px; margin-bottom: 10px; }
+  .site-map { width: 100%; height: 150px; border-radius: 10px; background: var(--docket-2); position: relative; overflow: hidden; margin: 8px 0 4px; border: 1px solid var(--line); }
+  .site-map .ring { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); border: 2px solid var(--ember); background: rgba(232, 84, 31, .12); border-radius: 50%; }
+  .site-map .pin { position: absolute; left: 50%; top: 50%; width: 12px; height: 12px; border-radius: 50%; background: var(--ember); transform: translate(-50%, -50%); box-shadow: 0 0 0 3px #fff; }
+  .site-map .scale { position: absolute; left: 10px; bottom: 8px; font-family: var(--font-docket); font-size: 11px; color: var(--ink-2); }
+  .hist .n { font-size: 13px; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 14px; border-top: 1px dashed var(--line); }
+  .kv:first-child { border-top: 0; }
+  .kv b { font-family: var(--font-docket); }
+</style>
+</head>
+<body>
+<div class="lamp"></div>
+<div class="app cl-app">
+  <div class="topbar">
+    <div class="kicker"><span id="venueName">—</span></div>
+    <h1>More</h1>
+    <div class="actions">
+      <div class="seg grow" id="tabs">
+        <button data-t="crew" class="on">Crew</button><button data-t="sites">Sites</button><button data-t="history">History</button><button data-t="venue">Venue</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" data-pane="crew">
+    <h2>Crew <span class="spacer"></span><span class="muted" id="crewCap" style="letter-spacing:0;text-transform:none;font-family:var(--font-ui)"></span></h2>
+    <input class="search" id="crewSearch" type="search" placeholder="Search name or mobile" autocomplete="off">
+    <div class="card rows" id="crewList"><div class="empty">Loading…</div></div>
+    <button class="btn primary block" id="addCrew" type="button" style="margin-top:12px">+ Add crew member</button>
+    <p class="hint">Each person opens Telegram, messages the Crewline bot and taps "share my number". Only numbers on this list are accepted.</p>
+  </div>
+
+  <div class="section" data-pane="sites" style="display:none">
+    <h2>Sites</h2>
+    <p class="hint" style="margin:0 0 10px">Every clock-in is checked against a site's location and radius. One venue is one site; add more only if you run several buildings.</p>
+    <div id="siteWarn"></div>
+    <div class="card rows" id="siteList"><div class="empty">Loading…</div></div>
+    <button class="btn primary block" id="addSite" type="button" style="margin-top:12px">+ Add site</button>
+  </div>
+
+  <div class="section" data-pane="history" style="display:none">
+    <h2>Shift history <span class="spacer"></span><span class="muted" style="letter-spacing:0;text-transform:none;font-family:var(--font-ui)">last 14 days</span></h2>
+    <div class="card rows" id="histList"><div class="empty">Loading…</div></div>
+    <p class="hint">Tap a shift to amend the times. Originals are kept in the audit trail.</p>
+  </div>
+
+  <div class="section" data-pane="venue" style="display:none">
+    <h2>This venue</h2>
+    <div class="card" id="venueCard"><div class="empty">Loading…</div></div>
+    <div class="section"><h2>Links</h2>
+      <div class="card rows">
+        <a class="row tap" id="lnkPay" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Pay settings</div><div class="s">Budget %, week start, super, 152 h cycle, public holidays</div></div></a>
+        <a class="row tap" id="lnkDiary" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Food safety diary</div><div class="s">Temperature units, cleaning list, check times</div></div></a>
+        <a class="row tap" id="lnkCompliance" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Compliance pack (CSV)</div><div class="s">Every roster shift and amendment, last 90 days</div></div></a>
+      </div>
+    </div>
+    <div class="section" id="adminSection" style="display:none"><h2>Venues (admin)</h2>
+      <div class="card rows" id="tenantList"></div>
+      <button class="btn block" id="addTenant" type="button" style="margin-top:12px">+ New venue</button>
+    </div>
+    <div class="section"><button class="btn block ghost" id="signout" type="button">Forget this key on this device</button></div>
+  </div>
+</div>
+
+<script src="/static/crewline.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const E = CL.esc;
+let dash = null, workers = [], sites = [], me = null;
+
+/* ---------- tabs ---------- */
+function showPane(t) {
+  document.querySelectorAll("[data-pane]").forEach((p) => (p.style.display = p.dataset.pane === t ? "" : "none"));
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.t === t));
+  history.replaceState(null, "", "#" + t);
+}
+document.querySelectorAll("#tabs button").forEach((b) => (b.onclick = () => showPane(b.dataset.t)));
+
+/* ---------- crew ---------- */
+async function loadCrew() {
+  try {
+    const r = await CL.api("/api/core/workers");
+    workers = r.workers.map((w) => ({ ...w, phone: w.phone || w.id }));
+  } catch (e) {
+    // No Firestore (local) → fall back to the bot's staff list, read-only.
+    workers = (dash ? dash.staff : []).filter((s) => s.active !== false).map((s) => ({ ...s, id: s.phone }));
+  }
+  renderCrew();
+}
+function renderCrew() {
+  const q = $("crewSearch").value.trim().toLowerCase();
+  const list = workers.filter((w) => !q || (w.name || "").toLowerCase().includes(q) || String(w.phone).includes(q)).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  const linked = (phone) => { const s = dash && dash.staff.find((x) => x.phone === phone); return s && s.telegramChatId; };
+  $("crewCap").textContent = me && me.staffLimit ? `${workers.filter((w) => w.role !== "owner").length} of ${me.staffLimit}` : `${workers.length}`;
+  $("crewList").innerHTML = list.length ? list.map((w, i) => {
+    const kind = w.employmentType === "fulltime" && w.payType === "salary" ? "Salaried" : ({ casual: "Casual", parttime: "Part-time", fulltime: "Full-time" }[w.employmentType] || "no pay details");
+    const rate = w.payType === "salary" ? (w.annualSalary ? "$" + Number(w.annualSalary).toLocaleString("en-AU") + "/yr" : "no salary") : (w.hourlyRate || w.wageRate ? "$" + Number(w.hourlyRate || w.wageRate).toFixed(2) + "/h" : (w.level ? "award " + w.level : ""));
+    return `<div class="row tap" data-i="${workers.indexOf(w)}">
+      <div class="avatar ${w.department === "kitchen" ? "k" : ""}">${CL.initials(w.name)}</div>
+      <div class="grow"><div class="t ellipsis">${E(w.name)} ${w.role && w.role !== "staff" ? `<span class="pill" style="font-size:10px">${w.role}</span>` : ""}</div>
+        <div class="s ellipsis">${kind}${w.department ? " · " + cap(w.department) : ""}${rate ? " · " + rate : ""}</div></div>
+      <span class="pill ${linked(w.phone) ? "ok" : ""}" title="Telegram">${linked(w.phone) ? "linked" : "not linked"}</span>
+    </div>`;
+  }).join("") : `<div class="empty">${workers.length ? "No one matches." : "No crew yet. Add your first person below."}</div>`;
+  $("crewList").querySelectorAll(".row").forEach((el) => (el.onclick = () => CL.crewSheet(workers[Number(el.dataset.i)], reloadAll)));
+}
+function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ""; }
+$("crewSearch").addEventListener("input", renderCrew);
+$("addCrew").onclick = () => CL.crewSheet(null, reloadAll);
+
+/* ---------- sites ---------- */
+async function loadSites() {
+  try { const r = await CL.api("/api/sites"); sites = r.sites || []; renderSites(r); } catch (e) { $("siteList").innerHTML = `<div class="err">${E(e.message)}</div>`; }
+}
+function renderSites(r) {
+  const active = sites.filter((s) => s.active !== false);
+  $("siteWarn").innerHTML = !sites.length ? `<div class="flag ${r && r.legacyTenantGeofence ? "warn" : "over"}">${r && r.legacyTenantGeofence ? "No sites yet — clock-ins still use the old venue-wide radius. Add a site to fix it." : "No site and no location — nobody can clock in until you add one."}</div>`
+    : !active.some((s) => s.geofence) ? `<div class="flag over">No active site has a location — nobody can clock in.</div>` : "";
+  $("siteList").innerHTML = sites.length ? sites.map((s, i) => `<div class="row tap" data-i="${i}" style="${s.active === false ? "opacity:.5" : ""}">
+      <div class="grow"><div class="t">${E(s.name)} ${s.active === false ? '<span class="pill">paused</span>' : ""}</div>
+        <div class="s">${E(s.address || (s.geofence ? s.geofence.lat.toFixed(4) + ", " + s.geofence.lng.toFixed(4) : "no location"))}</div></div>
+      <span class="pill ${s.geofence ? "ok" : "warn"}">${s.geofence ? s.geofence.radiusMeters + " m" : "no location"}</span>
+    </div>`).join("") : `<div class="empty">No sites yet.</div>`;
+  $("siteList").querySelectorAll(".row").forEach((el) => (el.onclick = () => siteSheet(sites[Number(el.dataset.i)])));
+}
+$("addSite").onclick = () => siteSheet(null);
+
+function siteSheet(site) {
+  const g = (site && site.geofence) || {};
+  const el = CL.makeSheet({
+    id: "site-sheet", title: site ? `Edit — ${E(site.name)}` : "Add site",
+    body: `
+      <label class="field"><span class="lbl">Name</span><input id="si-name" type="text" value="${E(site ? site.name : "")}" placeholder="e.g. Harbour Café"></label>
+      <label class="field"><span class="lbl">Address (optional)</span><input id="si-addr" type="text" value="${E(site ? site.address || "" : "")}" placeholder="e.g. 12 Wharf St, Sydney"></label>
+      <button class="btn block" type="button" id="si-here">📍 Use my current location</button>
+      <div class="help" style="margin:6px 0 12px;font-size:12px;color:var(--ink-2)">Stand at the venue (front door or the pass) and tap. Or paste coordinates from Apple/Google Maps: press and hold on the spot, the two numbers are latitude, longitude.</div>
+      <div class="frow">
+        <label class="field"><span class="lbl">Latitude</span><input id="si-lat" type="number" inputmode="decimal" step="0.000001" value="${g.lat ?? ""}" placeholder="-33.8710"></label>
+        <label class="field"><span class="lbl">Longitude</span><input id="si-lng" type="number" inputmode="decimal" step="0.000001" value="${g.lng ?? ""}" placeholder="151.2073"></label>
+      </div>
+      <div class="field"><span class="lbl">Clock-in radius <b id="si-rv" class="mono">${g.radiusMeters || 75} m</b></span>
+        <input id="si-r" type="range" min="20" max="500" step="5" value="${g.radiusMeters || 75}">
+        <div class="site-map" id="si-map"><div class="ring" id="si-ring"></div><div class="pin"></div><div class="scale" id="si-scale"></div></div>
+        <div class="help">50–100 m absorbs normal GPS drift. Go bigger for a basement kitchen or a venue with a car park; too tight and real clock-ins get flagged.</div>
+      </div>
+      ${site ? `<label class="field inline"><label for="si-active">Active</label><span class="switch"><input id="si-active" type="checkbox" ${site.active === false ? "" : "checked"}><span></span></span></label>` : ""}
+      <p class="err" id="si-err"></p>`,
+    foot: `<button class="btn primary" id="si-save" type="button">Save site</button>`,
+  });
+  const q = (id) => el.querySelector("#" + id);
+  const paintRing = () => {
+    const r = Number(q("si-r").value); q("si-rv").textContent = r + " m";
+    const scale = 150 / 400; // the map box is 400 m across
+    const px = Math.max(10, r * 2 * scale);
+    q("si-ring").style.width = px + "px"; q("si-ring").style.height = px + "px";
+    q("si-scale").textContent = "box ≈ 400 m across";
+  };
+  q("si-r").addEventListener("input", paintRing); paintRing();
+  q("si-here").onclick = () => {
+    if (!navigator.geolocation) { q("si-err").textContent = "Location isn't available in this browser."; return; }
+    q("si-here").disabled = true; q("si-here").textContent = "Finding you…";
+    navigator.geolocation.getCurrentPosition((pos) => {
+      q("si-lat").value = pos.coords.latitude.toFixed(6); q("si-lng").value = pos.coords.longitude.toFixed(6);
+      q("si-here").disabled = false; q("si-here").textContent = `📍 Got it (±${Math.round(pos.coords.accuracy)} m) — tap again to refresh`;
+    }, (err) => { q("si-here").disabled = false; q("si-here").textContent = "📍 Use my current location"; q("si-err").textContent = "Couldn't get your location — allow location for this site in Settings, or type the coordinates."; }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+  };
+  const s = CL.sheet("site-sheet"); s.open();
+  q("si-save").onclick = async () => {
+    const name = q("si-name").value.trim(), lat = Number(q("si-lat").value), lng = Number(q("si-lng").value), radiusMeters = Number(q("si-r").value);
+    if (!name) { q("si-err").textContent = "A name is needed."; return; }
+    if (!(lat >= -90 && lat <= 90) || !(lng >= -180 && lng <= 180) || q("si-lat").value === "" || q("si-lng").value === "") { q("si-err").textContent = "Latitude and longitude are needed — use your location or paste them from Maps."; return; }
+    try {
+      await CL.api("/api/sites", { method: "POST", body: { ...(site ? { siteId: site.siteId } : {}), name, address: q("si-addr").value.trim() || null, geofence: { lat, lng, radiusMeters }, active: site ? q("si-active").checked : true } });
+      s.close(); CL.toast("Site saved"); loadSites();
+    } catch (e) { q("si-err").textContent = e.message; }
+  };
+}
+
+/* ---------- history ---------- */
+function effective(s) {
+  const inIso = (s.amended && s.amended.clockInTime) || s.clockIn.time;
+  const outIso = (s.amended && s.amended.clockOutTime) || (s.clockOut && s.clockOut.time);
+  const breakMs = s.amended && s.amended.breakMinutes != null ? s.amended.breakMinutes * 60000
+    : (s.breaks || []).reduce((sum, b) => (b.end ? sum + (new Date(b.end) - new Date(b.start)) : sum), 0);
+  return { inIso, outIso, breakMs };
+}
+function renderHistory() {
+  const hist = (dash.shifts || []).filter((s) => s.clockOut && !s.clockOut.denied).sort((a, b) => new Date(b.clockIn.time) - new Date(a.clockIn.time)).slice(0, 40);
+  const nameOf = (p) => { const s = dash.staff.find((x) => x.phone === p); return s ? s.name : p; };
+  $("histList").innerHTML = hist.length ? hist.map((s, i) => { const e = effective(s); return `<div class="row tap hist" data-i="${i}">
+      <div class="grow"><div class="t">${E(nameOf(s.staffPhone))} ${s.amended ? '<span class="pill ember">amended</span>' : ""}${s.clockOut.forcedByManager ? '<span class="pill">closed by manager</span>' : ""}</div>
+        <div class="s">${CL.dayLong(e.inIso.slice(0, 10))} · ${CL.clock(e.inIso)}–${CL.clock(e.outIso)}${e.breakMs ? " · " + Math.round(e.breakMs / 60000) + "m break" : ""}${s.siteName ? " · " + E(s.siteName) : ""}</div></div>
+      <span class="n">${CL.dur(new Date(e.outIso) - new Date(e.inIso) - e.breakMs)}</span></div>`; }).join("")
+    : `<div class="empty">No closed shifts yet — they print here after the first clock-out.</div>`;
+  $("histList").querySelectorAll(".row").forEach((el) => (el.onclick = () => amendSheet(hist[Number(el.dataset.i)])));
+}
+function toLocal(iso) { const d = new Date(iso); const p = (n) => String(n).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+function amendSheet(s) {
+  const e = effective(s);
+  const el = CL.makeSheet({ id: "amend-sheet", title: "Amend timesheet", body: `
+      <p class="hint" style="margin:0 0 12px">Original (kept for the audit trail): ${CL.dayLong(s.clockIn.time.slice(0, 10))} · in ${CL.clock(s.clockIn.time)} · out ${CL.clock(s.clockOut.time)}</p>
+      <label class="field"><span class="lbl">Clock in</span><input id="am-in" type="datetime-local" value="${toLocal(e.inIso)}"></label>
+      <label class="field"><span class="lbl">Clock out</span><input id="am-out" type="datetime-local" value="${toLocal(e.outIso)}"></label>
+      <label class="field"><span class="lbl">Unpaid break (minutes)</span><input id="am-brk" type="number" inputmode="numeric" min="0" max="1440" value="${Math.round(e.breakMs / 60000)}"></label>
+      <p class="err" id="am-err"></p>`, foot: `<button class="btn primary" id="am-save" type="button">Save amendment</button>` });
+  const sh = CL.sheet("amend-sheet"); sh.open();
+  el.querySelector("#am-save").onclick = async () => {
+    const inV = el.querySelector("#am-in").value, outV = el.querySelector("#am-out").value;
+    if (!inV || !outV) { el.querySelector("#am-err").textContent = "Both times are needed."; return; }
+    if (new Date(outV) <= new Date(inV)) { el.querySelector("#am-err").textContent = "Clock out must be after clock in."; return; }
+    try {
+      await CL.api(`/api/shifts/${encodeURIComponent(s.shiftId)}/amend`, { method: "POST", body: { clockInTime: new Date(inV).toISOString(), clockOutTime: new Date(outV).toISOString(), breakMinutes: Number(el.querySelector("#am-brk").value || 0) } });
+      sh.close(); CL.toast("Amended"); reloadAll();
+    } catch (err) { el.querySelector("#am-err").textContent = err.message; }
+  };
+}
+
+/* ---------- venue / admin ---------- */
+function renderVenue() {
+  $("venueCard").innerHTML = `
+    <div class="kv"><span>Venue</span><b>${E(me ? me.name : "—")}</b></div>
+    <div class="kv"><span>Staff included</span><b>${me ? me.staffLimit : "—"}</b></div>
+    <div class="kv"><span>Linked on Telegram</span><b>${dash ? dash.staff.filter((s) => s.telegramChatId).length : 0} of ${dash ? dash.staff.length : 0}</b></div>
+    <div class="kv"><span>Bot</span><b>@CrewLine_SuperApps_bot</b></div>`;
+  if (me && me.isAdmin) { $("adminSection").style.display = ""; loadTenants(); }
+}
+async function loadTenants() {
+  try {
+    const r = await CL.api("/api/admin/tenants");
+    $("tenantList").innerHTML = r.tenants.map((t) => `<div class="row"><div class="grow"><div class="t">${E(t.name)} ${t.active ? "" : '<span class="pill">paused</span>'}</div><div class="s">${t.tenantId} · ${t.staff} staff, ${t.linked} linked · ${t.plan || ""}</div></div><button class="btn sm" data-t="${E(t.tenantId)}" data-a="${t.active ? 0 : 1}" type="button">${t.active ? "Pause" : "Resume"}</button></div>`).join("") || `<div class="empty">No venues yet.</div>`;
+    $("tenantList").querySelectorAll("button").forEach((b) => (b.onclick = async () => { await CL.api(`/api/admin/tenants/${b.dataset.t}/active`, { method: "POST", body: { active: b.dataset.a === "1" } }); loadTenants(); }));
+  } catch (e) { $("tenantList").innerHTML = `<div class="err">${E(e.message)}</div>`; }
+}
+$("addTenant").onclick = () => {
+  const el = CL.makeSheet({ id: "tenant-sheet", title: "New venue (Pro member)", body: `
+      <label class="field"><span class="lbl">Venue name</span><input id="tn-name" type="text" placeholder="Harbour Café"></label>
+      <label class="field"><span class="lbl">Owner name</span><input id="tn-owner" type="text"></label>
+      <label class="field"><span class="lbl">Owner mobile (Telegram)</span><input id="tn-phone" type="tel" inputmode="tel" placeholder="614XXXXXXXX"></label>
+      <label class="field"><span class="lbl">Owner email</span><input id="tn-email" type="email"></label>
+      <div id="tn-out"></div><p class="err" id="tn-err"></p>`, foot: `<button class="btn primary" id="tn-save" type="button">Create venue</button>` });
+  const sh = CL.sheet("tenant-sheet"); sh.open();
+  el.querySelector("#tn-save").onclick = async () => {
+    try {
+      const r = await CL.api("/api/admin/tenants", { method: "POST", body: { name: el.querySelector("#tn-name").value, ownerName: el.querySelector("#tn-owner").value, ownerPhone: el.querySelector("#tn-phone").value, ownerEmail: el.querySelector("#tn-email").value } });
+      el.querySelector("#tn-out").innerHTML = `<div class="card"><div style="font-weight:800">Created — send this to the owner:</div><textarea readonly style="width:100%;min-height:200px;margin-top:8px;font-size:13px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--paper)">${E(r.welcome)}</textarea></div>`;
+      el.querySelector("#tn-save").style.display = "none"; loadTenants();
+    } catch (e) { el.querySelector("#tn-err").textContent = e.message; }
+  };
+};
+$("signout").onclick = () => { try { localStorage.removeItem("crewline_key"); localStorage.removeItem("hos_dashboard_key"); localStorage.removeItem("dwos_key"); } catch {} location.href = "/dashboard"; };
+
+/* ---------- boot ---------- */
+async function reloadAll() {
+  try { dash = await CL.api("/api/dashboard"); } catch (e) { if (e.status === 401) return; dash = { staff: [], shifts: [] }; }
+  renderHistory(); loadCrew(); loadSites(); renderVenue();
+}
+$("lnkPay").href = CL.url("/pay"); $("lnkDiary").href = CL.url("/foodsafety");
+$("lnkCompliance").href = CL.url(`/api/core/export/compliance-pack?from=${CL.addDays(CL.today(), -90)}&to=${CL.today()}`);
+CL.tabbar("more"); CL.topbar();
+CL.requireKey(async () => {
+  me = await CL.venueName(); if (me && me.name) $("venueName").textContent = me.name;
+  showPane((location.hash || "#crew").slice(1) || "crew");
+  reloadAll();
+});
+</script>
+</body>
+</html>

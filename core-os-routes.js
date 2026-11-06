@@ -116,11 +116,13 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       if (!getAward(awardCode || "MA000009").levels[level]) {
         return res.status(400).json({ error: "Unknown classification level for that award" });
       }
+      const pay = payFields(req.body, { employmentType });
+      if (pay.error) return res.status(400).json({ error: pay.error });
       let ref;
       try {
         ref = await W(req).add({
           name, phone, employmentType, level, role: role || "staff",
-          awardCode: awardCode || "MA000009", active: true, createdAt: now(),
+          awardCode: awardCode || "MA000009", active: true, createdAt: now(), ...pay.patch,
         });
       } catch (e) {
         if (e.message === "PHONE_IN_OTHER_VENUE") return res.status(409).json({ error: "That number is already registered at another venue." });
@@ -136,10 +138,14 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       const ref = W(req).doc(req.params.id);
       const doc = await ref.get();
       if (!doc.exists) return res.status(404).json({ error: "Worker not found" });
-      const allowed = ["name", "employmentType", "level", "awardCode", "active", "role", "department", "wageRate"];
+      const allowed = ["name", "employmentType", "level", "awardCode", "active", "role"];
       const patch = {};
       for (const k of allowed) if (req.body[k] !== undefined) patch[k] = req.body[k];
-      if (!Object.keys(patch).length) return res.status(400).json({ error: `Nothing to update. Allowed: ${allowed.join(", ")}` });
+      const merged0 = { ...doc.data(), ...patch };
+      const pay = payFields(req.body, merged0);
+      if (pay.error) return res.status(400).json({ error: pay.error });
+      Object.assign(patch, pay.patch);
+      if (!Object.keys(patch).length) return res.status(400).json({ error: `Nothing to update. Allowed: ${allowed.join(", ")}, department, payType, hourlyRate, annualSalary` });
       const merged = { ...doc.data(), ...patch };
       if (!getAward(merged.awardCode || "MA000009").levels[merged.level]) {
         return res.status(400).json({ error: "Unknown classification level for that award" });
@@ -169,6 +175,24 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       const workersById = {};
       workerSnap.docs.forEach((d) => (workersById[d.id] = { id: d.id, ...d.data() }));
       const costing = costRoster(shifts, workersById, { publicHolidays: holidays });
+      // Salaried full-timers cost their weekly salary, not hours × rate. Zero
+      // their hourly lines and add the salaries as one block so the docket
+      // matches the Pay page.
+      let salaryWeekly = 0;
+      const salaried = new Set();
+      for (const w of Object.values(workersById)) {
+        if (w.active === false || w.payType !== "salary" || w.employmentType !== "fulltime") continue;
+        salaried.add(w.id);
+        salaryWeekly += Number(w.annualSalary) > 0 ? Number(w.annualSalary) / 52 : 0;
+      }
+      if (salaried.size) {
+        for (const l of costing.lines) if (salaried.has(l.workerId)) { l.salary = true; l.wageCost = 0; l.superCost = 0; l.totalCost = 0; l.otCost = 0; }
+        costing.totals.wage = round2(costing.lines.reduce((t, l) => t + l.wageCost, 0));
+        costing.totals.super = round2(costing.lines.reduce((t, l) => t + l.superCost, 0));
+        costing.totals.total = round2(costing.totals.wage + costing.totals.super);
+      }
+      costing.totals.salaries = round2(salaryWeekly);
+      costing.totals.salariesSuper = round2(salaryWeekly * 0.12);
       res.json({ weekStart, weekEnd, shifts, costing, unverifiedRates: listUnverifiedRates() });
     } catch (e) { err(res, e); }
   });
@@ -467,6 +491,42 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
 };
 
 // ---------- helpers ----------
+/**
+ * The pay fields a crew form can send: department, payType, hourlyRate,
+ * annualSalary. Returns { patch } with only the fields present, or { error }.
+ */
+function payFields(body, merged) {
+  const patch = {};
+  if (body.department !== undefined) {
+    const d = String(body.department || "").trim().toLowerCase();
+    if (d && !["kitchen", "service"].includes(d)) return { error: 'department must be "kitchen" or "service"' };
+    patch.department = d || null;
+  }
+  if (body.payType !== undefined) {
+    const t = body.payType === "salary" ? "salary" : "hourly";
+    const et = body.employmentType !== undefined ? body.employmentType : merged.employmentType;
+    if (t === "salary" && et !== "fulltime") return { error: "Only full-time staff can be salaried" };
+    patch.payType = t;
+  }
+  if (body.hourlyRate !== undefined) {
+    if (body.hourlyRate === null || body.hourlyRate === "") patch.hourlyRate = null;
+    else {
+      const n = Number(body.hourlyRate);
+      if (!isFinite(n) || n < 0 || n > 500) return { error: "hourlyRate must be a number between 0 and 500" };
+      patch.hourlyRate = Math.round(n * 100) / 100;
+    }
+  }
+  if (body.annualSalary !== undefined) {
+    if (body.annualSalary === null || body.annualSalary === "") patch.annualSalary = null;
+    else {
+      const n = Number(body.annualSalary);
+      if (!isFinite(n) || n < 0 || n > 5000000) return { error: "annualSalary must be a number (per year, before super)" };
+      patch.annualSalary = Math.round(n);
+    }
+  }
+  return { patch };
+}
+function round2(n) { return Math.round(n * 100) / 100; }
 function now() { return new Date().toISOString(); }
 function addDays(dateStr, n) {
   const d = new Date(dateStr + "T12:00:00");

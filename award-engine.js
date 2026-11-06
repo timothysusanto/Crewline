@@ -174,7 +174,11 @@ function costShift(shift, worker, opts = {}) {
   const ordinaryHours = Math.min(hours, ot.dailyThresholdHours);
   const otHours = Math.max(0, hours - ot.dailyThresholdHours);
 
-  const base = level.base;
+  // The venue may pay above the award minimum (worker.hourlyRate; `wageRate`
+  // is the older field name). Penalties and loadings then scale with it, as
+  // they do in practice. Never below the award.
+  const paid = Number(worker.hourlyRate != null ? worker.hourlyRate : worker.wageRate);
+  const base = isFinite(paid) && paid > level.base ? paid : level.base;
   let cost = ordinaryHours * base * mult;
 
   // Time-of-day loadings — weekdays only, ordinary hours only (simplified v1)
@@ -210,7 +214,7 @@ function costShift(shift, worker, opts = {}) {
   return {
     date: shift.date, dayType: type,
     hours: round2(hours), ordinaryHours: round2(ordinaryHours), otHours: round2(otHours),
-    baseRate: base, multiplier: mult,
+    baseRate: base, awardRate: level.base, aboveAward: base > level.base, multiplier: mult,
     wageCost: round2(cost), superCost: round2(superAmt),
     totalCost: round2(cost + superAmt),
     loadings: loadingLines, otCost: round2(otCost),

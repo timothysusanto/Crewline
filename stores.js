@@ -5,7 +5,6 @@ const { InMemoryStaffStore, FirestoreStaffStore } = require("./store");
 const { InMemoryTenantStore, FirestoreTenantStore } = require("./tenantStore");
 const { InMemoryShiftsStore, FirestoreShiftsStore } = require("./shiftsStore");
 const { InMemoryRosterStore, FirestoreRosterStore } = require("./rosterStore");
-const { InMemoryPurchasesStore, FirestorePurchasesStore } = require("./purchasesStore");
 const { InMemorySiteStore, FirestoreSiteStore } = require("./siteStore");
 const { InMemoryAvailabilityStore, FirestoreAvailabilityStore } = require("./availabilityStore");
 
@@ -25,7 +24,6 @@ function buildStores() {
       availabilityStore: new FirestoreAvailabilityStore(db),
       shiftsStore: new FirestoreShiftsStore(db),
       rosterStore: new FirestoreRosterStore(db),
-      purchasesStore: new FirestorePurchasesStore(db),
       backend: "firestore",
     };
   }
@@ -37,7 +35,6 @@ function buildStores() {
     availabilityStore: new InMemoryAvailabilityStore(),
     shiftsStore: new InMemoryShiftsStore(),
     rosterStore: new InMemoryRosterStore(),
-    purchasesStore: new InMemoryPurchasesStore(),
     backend: "in-memory",
   };
 }

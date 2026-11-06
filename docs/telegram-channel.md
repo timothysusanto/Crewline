@@ -29,7 +29,7 @@ fallback if its env vars are set.
 - `POST /webhook/telegram` is authenticated by the secret token (`X-Telegram-Bot-Api-Secret-Token`),
   acknowledges immediately, then processes. Private chats only; groups are ignored.
 - Commands: `in`, `out`, `break`, `back`, `roster`, `yes` / `swap` (answering a published
-  roster), `avail`, `wallet`, `temps`, `clean`, `delivery`, `train`, `spend`. Typing them with a
+  roster), `avail`, `wallet`, `temps`, `clean`, `delivery`, `train`. Typing them with a
   slash also works (`/in`). Location and photos use Telegram's native share-location button
   and photo upload.
 - **One people list.** The roster page's crew list and the bot's staff list are the same

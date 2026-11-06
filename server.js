@@ -33,15 +33,23 @@ const DEFAULT_STAFF_LIMIT = 15;
 const app = express();
 const {
   staffStore, tenantStore, siteStore, availabilityStore,
-  shiftsStore, rosterStore, purchasesStore, backend,
+  shiftsStore, rosterStore, backend,
 } = buildStores();
 const pendingActions = new InMemoryPendingActions();
 const deps = {
   staffStore, tenantStore, siteStore, availabilityStore,
-  shiftsStore, rosterStore, purchasesStore, pendingActions,
+  shiftsStore, rosterStore, pendingActions,
 };
 
 console.log(`[startup] data backend: ${backend}`);
+
+// DEMO_SEED=1 with the in-memory backend fills a believable week so the pages
+// can be looked at locally. Never runs against Firestore.
+if (backend === "in-memory" && process.env.DEMO_SEED === "1") {
+  require("./demoSeed").seedDemo({ staffStore, rosterStore, shiftsStore, tenantStore, siteStore })
+    .then(() => console.log("[startup] demo data seeded"))
+    .catch((err) => console.error("[startup] demo seed failed:", err));
+}
 
 // Telegram is the primary channel: any message addressed to a phone number goes
 // to that person's linked Telegram chat; WhatsApp is only the fallback (see
@@ -445,9 +453,28 @@ app.post("/api/staff", requireDashboardKey, async (req, res) => {
     if (!["owner", "manager", "staff"].includes(role)) {
       return res.status(400).json({ error: 'role must be "owner", "manager", or "staff".' });
     }
-    const wageRate = req.body.wageRate != null ? Number(req.body.wageRate) : null;
-    if (wageRate != null && (!isFinite(wageRate) || wageRate < 0)) {
-      return res.status(400).json({ error: "wageRate must be a non-negative number." });
+    // Pay details. `hourlyRate` is what the venue pays (above-award allowed);
+    // `wageRate` is the older name for the same field.
+    const rateRaw = req.body.hourlyRate != null ? req.body.hourlyRate : req.body.wageRate;
+    const hourlyRate = rateRaw != null && rateRaw !== "" ? Number(rateRaw) : null;
+    if (hourlyRate != null && (!isFinite(hourlyRate) || hourlyRate < 0)) {
+      return res.status(400).json({ error: "hourlyRate must be a non-negative number." });
+    }
+    const dept = department ? String(department).trim().toLowerCase() : null;
+    if (dept && !["kitchen", "service"].includes(dept)) {
+      return res.status(400).json({ error: 'department must be "kitchen" or "service".' });
+    }
+    const employmentType = req.body.employmentType;
+    if (employmentType && !["casual", "parttime", "fulltime"].includes(employmentType)) {
+      return res.status(400).json({ error: 'employmentType must be "casual", "parttime" or "fulltime".' });
+    }
+    const payType = req.body.payType === "salary" ? "salary" : req.body.payType ? "hourly" : undefined;
+    if (payType === "salary" && employmentType !== "fulltime") {
+      return res.status(400).json({ error: "Only full-time staff can be salaried." });
+    }
+    const annualSalary = req.body.annualSalary != null && req.body.annualSalary !== "" ? Number(req.body.annualSalary) : null;
+    if (annualSalary != null && (!isFinite(annualSalary) || annualSalary < 0)) {
+      return res.status(400).json({ error: "annualSalary must be a non-negative number (per year, before super)." });
     }
 
     // The jobs this person can be sent to do — matched against a request's role.
@@ -487,8 +514,13 @@ app.post("/api/staff", requireDashboardKey, async (req, res) => {
       tenantId: req.tenantId,
       name: String(name).trim(),
       role,
-      department: department ? String(department).trim() : null,
-      wageRate,
+      department: dept,
+      hourlyRate,
+      ...(employmentType ? { employmentType } : {}),
+      ...(payType ? { payType } : {}),
+      ...(req.body.annualSalary !== undefined ? { annualSalary } : {}),
+      ...(req.body.level ? { level: String(req.body.level) } : {}),
+      ...(req.body.awardCode ? { awardCode: String(req.body.awardCode) } : {}),
       ...(roles ? { roles } : {}),
       ...(standingPattern ? { standingPattern } : {}),
     });
@@ -608,122 +640,6 @@ app.post("/api/sites/:id/active", requireDashboardKey, async (req, res) => {
 });
 
 /**
- * Penalty-rate settings — a configurable cost-estimation engine, NOT award
- * interpretation. The AU/US presets in the dashboard pre-fill these fields
- * as editable starting points; the venue owner confirms them against their
- * own award / state law. Numbers here feed roster costing only, never pay.
- */
-app.get("/api/settings/penalties", requireDashboardKey, async (req, res) => {
-  try {
-    const venue = await tenantStore.findById(req.tenantId);
-    res.json({ penaltyRules: (venue && venue.penaltyRules) || null });
-  } catch (err) {
-    console.error("[settings] failed to load penalties:", err);
-    res.status(500).json({ error: "Failed to load penalty settings." });
-  }
-});
-
-app.post("/api/settings/penalties", requireDashboardKey, async (req, res) => {
-  try {
-    const r = req.body || {};
-    const num = (v, min, max) => {
-      const n = Number(v);
-      return isFinite(n) && n >= min && n <= max ? n : null;
-    };
-    const penaltyRules = {
-      saturday: num(r.saturday, 0.5, 5) ?? 1,
-      sunday: num(r.sunday, 0.5, 5) ?? 1,
-      publicHoliday: num(r.publicHoliday, 0.5, 5) ?? 1,
-      overtimeWeeklyHours: num(r.overtimeWeeklyHours, 1, 168) ?? 40,
-      overtimeMultiplier: num(r.overtimeMultiplier, 1, 5) ?? 1.5,
-      publicHolidays: Array.isArray(r.publicHolidays)
-        ? r.publicHolidays.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d))).slice(0, 60)
-        : [],
-      preset: ["AU", "US", "custom"].includes(r.preset) ? r.preset : "custom",
-      slotHours: {
-        AM: num(r.slotHours && r.slotHours.AM, 0.5, 24) ?? 5,
-        PM: num(r.slotHours && r.slotHours.PM, 0.5, 24) ?? 6,
-        ALL: num(r.slotHours && r.slotHours.ALL, 0.5, 24) ?? 10,
-      },
-    };
-    await tenantStore.updateSettings(req.tenantId, { penaltyRules });
-    res.json({ ok: true, penaltyRules });
-  } catch (err) {
-    console.error("[settings] failed to save penalties:", err);
-    res.status(500).json({ error: "Failed to save penalty settings." });
-  }
-});
-
-
-/**
- * GET /api/purchases?week=YYYY-MM-DD — the week's purchases (Mon..Sun),
- * newest first, plus the week total. Date filtering in JS: single-field
- * Firestore query keeps us index-free (same discipline as elsewhere).
- */
-app.get("/api/purchases", requireDashboardKey, async (req, res) => {
-  try {
-    const weekStart = String(req.query.week || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
-    }
-    const end = new Date(weekStart + "T12:00:00");
-    end.setDate(end.getDate() + 7);
-    const weekEnd = end.toISOString().slice(0, 10);
-    const all = await purchasesStore.listByTenant(req.tenantId);
-    const purchases = all
-      .filter((p) => p.date >= weekStart && p.date < weekEnd)
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-    const total = purchases.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    res.json({ purchases, total });
-  } catch (err) {
-    console.error("[purchases] failed to list:", err);
-    res.status(500).json({ error: "Failed to load purchases." });
-  }
-});
-
-/**
- * POST /api/purchases — log a purchase from the dashboard.
- * Body: { date: "YYYY-MM-DD", amount, supplier }.
- */
-app.post("/api/purchases", requireDashboardKey, async (req, res) => {
-  try {
-    const { date, amount, supplier } = req.body || {};
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ""))) {
-      return res.status(400).json({ error: "date must be YYYY-MM-DD." });
-    }
-    const amt = Number(amount);
-    if (!isFinite(amt) || amt <= 0 || amt > 1000000) {
-      return res.status(400).json({ error: "amount must be a positive number." });
-    }
-    const record = await purchasesStore.add({
-      tenantId: req.tenantId,
-      date,
-      amount: amt,
-      supplier: supplier ? String(supplier).trim().slice(0, 80) : null,
-      source: "manual",
-      loggedBy: null,
-    });
-    res.json({ ok: true, purchase: record });
-  } catch (err) {
-    console.error("[purchases] failed to add:", err);
-    res.status(500).json({ error: "Failed to log that purchase." });
-  }
-});
-
-/** DELETE /api/purchases/:id — remove a mis-entered purchase. */
-app.delete("/api/purchases/:id", requireDashboardKey, async (req, res) => {
-  try {
-    if (!(await owned(req, res, await purchasesStore.findById(req.params.id)))) return;
-    await purchasesStore.remove(req.params.id);
-    res.json({ ok: true });
-  } catch (err) {
-    console.error("[purchases] failed to delete:", err);
-    res.status(500).json({ error: "Failed to remove that purchase." });
-  }
-});
-
-
-/**
  * POST /api/shifts/:id/close — manager force clock-out for forgotten
  * "out" texts (a nightly reality in kitchens). Closes the shift now with
  * no location, marked forcedByManager so reports can tell it apart.
@@ -768,238 +684,6 @@ app.post("/api/shifts/:id/amend", requireDashboardKey, async (req, res) => {
   } catch (err) {
     console.error("[dashboard] failed to amend shift:", err);
     res.status(500).json({ error: "Failed to amend that shift." });
-  }
-});
-
-/** Effective (amended-aware) times for a shift. Shared by both reports. */
-function effectiveShift(s) {
-  const inIso = (s.amended && s.amended.clockInTime) || s.clockIn.time;
-  const outIso = (s.amended && s.amended.clockOutTime) || (s.clockOut && s.clockOut.time);
-  const breakMs = s.amended && s.amended.breakMinutes != null
-    ? s.amended.breakMinutes * 60000
-    : (s.breaks || []).reduce((sum, b) => (b.end ? sum + (new Date(b.end) - new Date(b.start)) : sum), 0);
-  return { inIso, outIso, breakMs };
-}
-
-function reportDayMultiplier(dateIso, rules) {
-  if (!rules) return 1;
-  if ((rules.publicHolidays || []).includes(dateIso)) return rules.publicHoliday || 1;
-  const dow = new Date(dateIso + "T12:00:00").getDay();
-  if (dow === 6) return rules.saturday || 1;
-  if (dow === 0) return rules.sunday || 1;
-  return 1;
-}
-
-function reportMondayOf(dateIso) {
-  const d = new Date(dateIso + "T12:00:00");
-  const day = d.getDay();
-  d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
-  return d.toISOString().slice(0, 10);
-}
-
-/**
- * GET /api/reports/payroll?from=YYYY-MM-DD&to=YYYY-MM-DD
- * The finance payment run: every closed shift in range with effective times,
- * paid hours, rate, day multiplier and pay; weekly overtime lines per staff;
- * per-staff and grand totals. Amended rows carry their originals — the
- * audit trail finance requires.
- */
-app.get("/api/reports/payroll", requireDashboardKey, async (req, res) => {
-  try {
-    const from = String(req.query.from || "");
-    const to = String(req.query.to || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-      return res.status(400).json({ error: "from and to must be YYYY-MM-DD." });
-    }
-    const [staff, venue, shiftsRaw] = await Promise.all([
-      staffStore.listByTenant(req.tenantId),
-      tenantStore.findById(req.tenantId),
-      shiftsStore.listRecentByTenant(req.tenantId, from),
-    ]);
-    const rules = venue && venue.penaltyRules;
-    const endExclusive = new Date(to + "T12:00:00");
-    endExclusive.setDate(endExclusive.getDate() + 1);
-    const endIso = endExclusive.toISOString().slice(0, 10);
-
-    const rows = [];
-    const weekHours = {}; // `${phone}|${weekStart}` -> hours
-    for (const s of shiftsRaw) {
-      if (!s.clockOut || s.clockOut.denied) continue;
-      const eff = effectiveShift(s);
-      if (!eff.outIso) continue;
-      const dateIso = eff.inIso.slice(0, 10);
-      if (dateIso < from || dateIso >= endIso) continue;
-      const person = staff.find((x) => x.phone === s.staffPhone);
-      const rate = person && person.wageRate != null ? Number(person.wageRate) : null;
-      const hours = Math.max(0, (new Date(eff.outIso) - new Date(eff.inIso) - eff.breakMs) / 3600000);
-      const mult = reportDayMultiplier(dateIso, rules);
-      const pay = rate != null ? hours * rate * mult : null;
-      const key = `${s.staffPhone}|${reportMondayOf(dateIso)}`;
-      weekHours[key] = (weekHours[key] || 0) + hours;
-      rows.push({
-        staffPhone: s.staffPhone,
-        name: person ? person.name : s.staffPhone,
-        date: dateIso,
-        clockIn: eff.inIso,
-        clockOut: eff.outIso,
-        breakMinutes: Math.round(eff.breakMs / 60000),
-        hours: Number(hours.toFixed(2)),
-        rate,
-        multiplier: mult,
-        pay: pay != null ? Number(pay.toFixed(2)) : null,
-        amended: Boolean(s.amended),
-        originalClockIn: s.amended ? s.clockIn.time : null,
-        originalClockOut: s.amended && s.clockOut ? s.clockOut.time : null,
-        forcedByManager: Boolean(s.clockOut && s.clockOut.forcedByManager),
-      });
-    }
-
-    // Weekly overtime premium lines (base-rate premium, matching the dashboard).
-    const otRows = [];
-    if (rules && rules.overtimeWeeklyHours) {
-      for (const [key, hours] of Object.entries(weekHours)) {
-        const over = hours - rules.overtimeWeeklyHours;
-        if (over <= 0) continue;
-        const [phone, weekStart] = key.split("|");
-        const person = staff.find((x) => x.phone === phone);
-        const rate = person && person.wageRate != null ? Number(person.wageRate) : null;
-        if (rate == null) continue;
-        otRows.push({
-          staffPhone: phone,
-          name: person ? person.name : phone,
-          weekStart,
-          overtimeHours: Number(over.toFixed(2)),
-          premium: Number((over * rate * ((rules.overtimeMultiplier || 1) - 1)).toFixed(2)),
-        });
-      }
-    }
-
-    const perStaff = {};
-    for (const r of rows) {
-      const t = (perStaff[r.staffPhone] = perStaff[r.staffPhone] || { name: r.name, hours: 0, pay: 0, missingRate: false });
-      t.hours += r.hours;
-      if (r.pay != null) t.pay += r.pay; else t.missingRate = true;
-    }
-    for (const o of otRows) {
-      const t = perStaff[o.staffPhone];
-      if (t) t.pay += o.premium;
-    }
-    const grand = Object.values(perStaff).reduce(
-      (g, t) => ({ hours: g.hours + t.hours, pay: g.pay + t.pay }), { hours: 0, pay: 0 }
-    );
-    res.json({ from, to, rows, otRows, perStaff, grand, rulesApplied: Boolean(rules) });
-  } catch (err) {
-    console.error("[reports] payroll failed:", err);
-    res.status(500).json({ error: "Failed to build the payroll report." });
-  }
-});
-
-/**
- * POST /api/weeks/:week — the week's revenue forecast and stocktake, used by
- * the P&L. Body: { revenueForecast?, openingStock?, closingStock? } (numbers
- * or null). Stored as tenant.weeks[week].
- */
-app.post("/api/weeks/:week", requireDashboardKey, async (req, res) => {
-  try {
-    const week = String(req.params.week || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
-    }
-    const venue = (await tenantStore.findById(req.tenantId)) || {};
-    const weeks = { ...(venue.weeks || {}) };
-    const cur = { ...(weeks[week] || {}) };
-    for (const k of ["revenueForecast", "openingStock", "closingStock"]) {
-      if (!(k in (req.body || {}))) continue;
-      const v = req.body[k];
-      if (v === null || v === "") { cur[k] = null; continue; }
-      const n = Number(v);
-      if (!isFinite(n) || n < 0) return res.status(400).json({ error: `${k} must be a non-negative number.` });
-      cur[k] = n;
-    }
-    weeks[week] = cur;
-    await tenantStore.updateSettings(req.tenantId, { weeks });
-    res.json({ ok: true, week, ...cur });
-  } catch (err) {
-    console.error("[weeks] failed to save:", err);
-    res.status(500).json({ error: "Failed to save the week's numbers." });
-  }
-});
-
-/**
- * GET /api/reports/pnl?week=YYYY-MM-DD — the weekly P&L summary: revenue,
- * actual labour (amended-aware), food purchases / COGS, and the three
- * percentages management steers by.
- */
-app.get("/api/reports/pnl", requireDashboardKey, async (req, res) => {
-  try {
-    const week = String(req.query.week || "");
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) {
-      return res.status(400).json({ error: "week must be YYYY-MM-DD (a Monday)." });
-    }
-    const endD = new Date(week + "T12:00:00");
-    endD.setDate(endD.getDate() + 7);
-    const weekEnd = endD.toISOString().slice(0, 10);
-
-    const [staff, venue, shiftsRaw, purchasesAll] = await Promise.all([
-      staffStore.listByTenant(req.tenantId),
-      tenantStore.findById(req.tenantId),
-      shiftsStore.listRecentByTenant(req.tenantId, week),
-      purchasesStore.listByTenant(req.tenantId),
-    ]);
-    // Revenue forecast and stocktake for the week, entered on the dashboard's
-    // "Numbers" panel (POST /api/weeks/:week). Lives on the tenant doc.
-    const roster = (venue && venue.weeks && venue.weeks[week]) || {};
-    const rules = venue && venue.penaltyRules;
-
-    let labour = 0;
-    const wh = {};
-    for (const s of shiftsRaw) {
-      if (!s.clockOut || s.clockOut.denied) continue;
-      const eff = effectiveShift(s);
-      if (!eff.outIso) continue;
-      const dateIso = eff.inIso.slice(0, 10);
-      if (dateIso < week || dateIso >= weekEnd) continue;
-      const person = staff.find((x) => x.phone === s.staffPhone);
-      if (!person || person.wageRate == null) continue;
-      const hours = Math.max(0, (new Date(eff.outIso) - new Date(eff.inIso) - eff.breakMs) / 3600000);
-      labour += hours * Number(person.wageRate) * reportDayMultiplier(dateIso, rules);
-      wh[s.staffPhone] = (wh[s.staffPhone] || 0) + hours;
-    }
-    if (rules && rules.overtimeWeeklyHours) {
-      for (const [phone, hours] of Object.entries(wh)) {
-        const over = hours - rules.overtimeWeeklyHours;
-        if (over <= 0) continue;
-        const person = staff.find((x) => x.phone === phone);
-        if (person && person.wageRate != null) {
-          labour += over * Number(person.wageRate) * ((rules.overtimeMultiplier || 1) - 1);
-        }
-      }
-    }
-
-    const purchases = purchasesAll
-      .filter((p) => p.date >= week && p.date < weekEnd)
-      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
-    const hasStocktake = roster.openingStock != null && roster.closingStock != null;
-    const cogs = hasStocktake ? Number(roster.openingStock) + purchases - Number(roster.closingStock) : purchases;
-    const revenue = roster.revenueForecast != null ? Number(roster.revenueForecast) : null;
-
-    const pct = (x) => (revenue > 0 ? Number(((x / revenue) * 100).toFixed(2)) : null);
-    res.json({
-      week, weekEnd,
-      revenue,
-      labourCost: Number(labour.toFixed(2)),
-      purchases: Number(purchases.toFixed(2)),
-      openingStock: roster.openingStock,
-      closingStock: roster.closingStock,
-      cogs: Number(cogs.toFixed(2)),
-      cogsBasis: hasStocktake ? "stocktake" : "purchases",
-      labourPct: pct(labour),
-      foodPct: pct(cogs),
-      primePct: revenue > 0 ? Number((((labour + cogs) / revenue) * 100).toFixed(2)) : null,
-    });
-  } catch (err) {
-    console.error("[reports] pnl failed:", err);
-    res.status(500).json({ error: "Failed to build the P&L report." });
   }
 });
 
@@ -1059,7 +743,8 @@ app.post("/api/admin/tenants", requireDashboardKey, requireAdmin, async (req, re
     const welcome =
       `Hi ${String(ownerName).trim()}, your Crewline venue "${String(name).trim()}" is ready.\n\n` +
       `1. Roster + crew list: ${base_url}/roster?key=${dashboardKey}\n` +
-      `2. Dashboard (attendance, numbers, sites): ${base_url}/dashboard?key=${dashboardKey}\n` +
+      `2. Dashboard (who's on, sites, crew): ${base_url}/dashboard?key=${dashboardKey}\n` +
+      `   Pay (this week's payroll vs budget, pay-run CSV): ${base_url}/pay?key=${dashboardKey}\n` +
       `   Your dashboard key is ${dashboardKey} — keep it private, it's your login.\n` +
       `3. Add your staff on the Roster page with the mobile they use on Telegram (up to ${tenant.staffLimit}).\n` +
       `4. Everyone (you too) opens Telegram, messages @${bot}, taps "Share my phone number" — done. ` +
@@ -1140,6 +825,20 @@ app.use("/api/core", requireDashboardKey, coreOSRoutes({
 app.get("/roster", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "roster.html"));
 });
+
+// The Pay page: this week's payroll against the revenue budget, HIGA costing,
+// the 152-hour cycle for full-timers, and the Monday pay-run CSV.
+const payrollRoutes = require("./payroll-routes");
+app.use("/api/pay", requireDashboardKey, payrollRoutes({
+  db: getFirestoreDb(), staffStore, tenantStore, shiftsStore, rosterStore,
+}));
+app.get("/pay", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "pay.html"));
+});
+app.get("/more", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "more.html"));
+});
+app.use("/static", express.static(path.join(__dirname, "public", "static"), { maxAge: "1h" }));
 
 // Credential expiry nudges (Phase 2) — 60/30/7-day and expired reminders to
 // workers on WhatsApp. No-ops without Firestore; WALLET_NUDGES_DISABLED=1 off.

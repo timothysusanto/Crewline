@@ -1,232 +1,164 @@
 <!DOCTYPE html>
 <html lang="en-AU">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#FFFFFF">
-<title>Food Safety — Crewline</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Crewline">
+<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14171B" media="(prefers-color-scheme: dark)">
+<title>Food safety — Crewline</title>
+<link rel="stylesheet" href="/static/crewline.css">
 <style>
-  :root{
-    --paper:#FFFFFF; --docket:#FAF7F0; --ink:#1A1A1A; --ink-2:#555555;
-    --steel:#3E4C59; --steel-line:#D8DEE4;
-    --amber:#B45309; --amber-bg:#FDF3E7;
-    --red:#B3261E; --red-bg:#FBEAE9;
-    --green:#166534; --green-bg:#EAF4EC;
-    --radius:10px;
-    --font-ui:'Archivo',system-ui,sans-serif;
-    --font-docket:'IBM Plex Mono',ui-monospace,monospace;
-  }
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:var(--font-ui);color:var(--ink);background:var(--paper);font-size:16px;line-height:1.45}
-  button{font-family:inherit;font-size:inherit;cursor:pointer}
-  :focus-visible{outline:3px solid var(--steel);outline-offset:2px;border-radius:4px}
-  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-
-  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 20px;
-    border-bottom:1px solid var(--steel-line);position:sticky;top:0;background:var(--paper);z-index:20}
-  .brand{font-stretch:80%;font-weight:800;font-size:19px;letter-spacing:.02em;text-transform:uppercase;color:var(--steel)}
-  .brand small{display:block;font-weight:500;font-size:11px;letter-spacing:.14em;color:var(--ink-2);text-transform:uppercase}
-  .navlink{margin-left:auto;color:var(--steel);font-weight:700;text-decoration:none;border:1px solid var(--steel-line);
-    border-radius:8px;padding:9px 14px}
-  .navlink:hover{border-color:var(--steel)}
-  .demo-tag{font-size:12px;font-weight:600;color:var(--amber);background:var(--amber-bg);
-    border:1px solid var(--amber);border-radius:99px;padding:3px 10px;display:none}
-
-  .wrap{max-width:1100px;margin:0 auto;padding:20px;display:grid;gap:18px}
-  @media(min-width:900px){.wrap{grid-template-columns:1fr 1fr}}
-  section{background:var(--paper);border:1px solid var(--steel-line);border-radius:var(--radius);padding:16px 18px}
-  section.full{grid-column:1/-1}
-  h2{font-stretch:80%;font-weight:800;font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--steel);margin-bottom:12px}
-  .empty{color:var(--ink-2);font-size:14px}
-
-  /* unit chips */
-  .units{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
-  .unit{background:var(--docket);border:1px solid var(--steel-line);border-radius:8px;padding:10px 12px}
-  .unit .u{font-weight:700;font-size:13.5px}
-  .unit .v{font-family:var(--font-docket);font-size:22px;font-weight:600;margin:2px 0}
-  .unit.pass .v{color:var(--green)} .unit.fail .v{color:var(--red)}
-  .unit.none .v{color:var(--steel-line)}
-  .unit .m{font-size:12px;color:var(--ink-2)}
-
-  .row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:7px 0;
-    border-bottom:1px dashed var(--steel-line);font-size:14.5px}
-  .row:last-child{border-bottom:none}
-  .row .t{font-family:var(--font-docket);font-size:12.5px;color:var(--ink-2);white-space:nowrap}
-  .pill{font-size:12px;font-weight:700;border-radius:99px;padding:2px 9px;white-space:nowrap}
-  .pill.pass{color:var(--green);background:var(--green-bg)}
-  .pill.fail{color:var(--red);background:var(--red-bg)}
-  .pill.warn{color:var(--amber);background:var(--amber-bg)}
-  .corrective{font-size:13.5px;color:var(--ink-2);padding:2px 0 8px;border-bottom:1px dashed var(--steel-line)}
-  .corrective b{color:var(--ink)}
-
-  .check{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dashed var(--steel-line);font-size:15px}
-  .check:last-child{border-bottom:none}
-  .check .box{width:20px;height:20px;border-radius:5px;border:2px solid var(--steel-line);flex:none;
-    display:grid;place-items:center;font-size:13px;color:#fff}
-  .check.done .box{background:var(--green);border-color:var(--green)}
-  .check .who{margin-left:auto;font-size:12.5px;color:var(--ink-2);font-family:var(--font-docket)}
-
-  .export{display:flex;gap:10px;flex-wrap:wrap;align-items:end}
-  .export .field label{display:block;font-size:13px;font-weight:700;color:var(--steel);margin-bottom:4px}
-  .export input{font-family:var(--font-docket);font-size:15px;padding:9px 10px;border:1px solid var(--steel-line);
-    border-radius:8px;background:var(--paper);color:var(--ink)}
-  .btn-primary{background:var(--steel);color:#fff;border:none;border-radius:8px;padding:11px 18px;font-weight:700}
-  .btn-primary:hover{background:#2d3a45}
-  .hint{font-size:13px;color:var(--ink-2);margin-top:8px}
-  code{font-family:var(--font-docket);font-size:13px;background:var(--docket);padding:1px 5px;border-radius:4px}
+  .units { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .unit { background: var(--docket); border: 1px solid var(--line); border-radius: 12px; padding: 12px; border-left-width: 4px; }
+  .unit.pass { border-left-color: var(--green); } .unit.fail { border-left-color: var(--red); background: var(--red-bg); } .unit.none { border-left-color: var(--ink-3); }
+  .unit .u { font-size: 13px; font-weight: 700; }
+  .unit .v { font-family: var(--font-docket); font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-top: 4px; }
+  .unit.fail .v { color: var(--red); } .unit.pass .v { color: var(--green); }
+  .unit .m { font-size: 11.5px; color: var(--ink-2); margin-top: 2px; font-family: var(--font-docket); }
+  .check { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px dashed var(--line); font-size: 14.5px; }
+  .check:first-child { border-top: 0; }
+  .check .box { width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--line); display: grid; place-items: center; font-size: 14px; flex: 0 0 auto; }
+  .check.done .box { background: var(--green); border-color: var(--green); color: #fff; }
+  .check .who { margin-left: auto; font-family: var(--font-docket); font-size: 12px; color: var(--ink-2); white-space: nowrap; }
+  .corrective { font-size: 13.5px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 2px 0 8px; }
+  .tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag-list .pill { font-size: 13px; padding: 6px 10px; }
 </style>
 </head>
 <body>
+<div class="lamp"></div>
+<div class="app cl-app">
+  <div class="topbar">
+    <div class="kicker"><span>FOOD SAFETY DIARY</span><span>·</span><span id="hdrDate"></span><span class="demo-tag" id="demoTag">demo data</span></div>
+    <h1>Today</h1>
+    <div class="actions"><span class="pill" id="sumPill">—</span><span class="grow"></span><button class="btn sm" id="settingsBtn" type="button">Settings</button></div>
+  </div>
 
-<header>
-  <div class="brand">Food Safety Diary<small>Hospitality Edition · <span id="hdrDate"></span></small></div>
-  <span class="demo-tag" id="demoTag">Demo data — API not connected</span>
-  <a class="navlink" href="/roster">← Roster</a>
-</header>
-
-<div class="wrap">
-  <section class="full">
-    <h2>Temperature checks — today</h2>
+  <div class="section">
+    <h2>Temperature checks</h2>
     <div class="units" id="units"></div>
-    <p class="hint">Crew run these from Telegram — they text <code>temps</code> and the bot walks them unit by unit. Out-of-range readings demand a corrective action on the spot.</p>
-  </section>
+    <p class="hint">Crew message <b>temps</b> and the bot walks them unit by unit. Out-of-range readings demand a corrective action on the spot.</p>
+  </div>
 
-  <section>
+  <div class="section" id="failSection">
     <h2>Failures &amp; corrective actions</h2>
-    <div id="failures"><span class="empty">No failures today.</span></div>
-  </section>
+    <div class="card" id="failures"><span class="empty">No failures today.</span></div>
+  </div>
 
-  <section>
-    <h2>Cleaning — today</h2>
-    <div id="cleaning"></div>
-    <p class="hint">Crew text <code>clean</code> for the list, <code>clean 2</code> to tick one off.</p>
-  </section>
+  <div class="section">
+    <h2>Cleaning</h2>
+    <div class="card" id="cleaning"></div>
+    <p class="hint">Crew message <b>clean</b> for the list, <b>clean 2</b> to tick one off.</p>
+  </div>
 
-  <section>
+  <div class="section">
     <h2>Deliveries received</h2>
-    <div id="deliveries"><span class="empty">None logged today.</span></div>
-    <p class="hint">Crew text <code>delivery bidfood 3.4</code> at the dock.</p>
-  </section>
+    <div class="card" id="deliveries"><span class="empty">None logged today.</span></div>
+    <p class="hint">Crew message <b>delivery bidfood 3.4</b> at the dock.</p>
+  </div>
 
-  <section>
-    <h2>Training completions (90 days)</h2>
-    <div id="training"><span class="empty">None yet.</span></div>
-    <p class="hint">Crew text <code>train</code> — Food Safety Basics runs in English, नेपाली and 中文.</p>
-  </section>
+  <div class="section">
+    <h2>Training completions <span class="spacer"></span><span class="muted" style="letter-spacing:0;text-transform:none;font-family:var(--font-ui)">90 days</span></h2>
+    <div class="card" id="training"><span class="empty">None yet.</span></div>
+  </div>
 
-  <section class="full">
-    <h2>Evidence pack — Standard 3.2.2A substantiation</h2>
-    <div class="export">
-      <div class="field"><label for="expFrom">From</label><input id="expFrom" type="date"></div>
-      <div class="field"><label for="expTo">To</label><input id="expTo" type="date"></div>
-      <button class="btn-primary" id="expBtn">Download CSV</button>
+  <div class="section">
+    <h2>Evidence pack</h2>
+    <div class="card">
+      <div class="frow">
+        <label class="field"><span class="lbl">From</span><input id="expFrom" type="date"></label>
+        <label class="field"><span class="lbl">To</span><input id="expTo" type="date"></label>
+      </div>
+      <button class="btn steel block" id="expBtn" type="button">Download CSV — Standard 3.2.2A</button>
+      <p class="hint">Every reading, cleaning record, delivery check, who logged it, every corrective action and photo reference. The pack you hand the EHO.</p>
     </div>
-    <p class="hint">Every reading, cleaning record, delivery check, who logged it, every corrective action and photo reference — the pack you hand the EHO.</p>
-  </section>
+  </div>
 </div>
 
+<script src="/static/crewline.js"></script>
 <script>
+const $ = (id) => document.getElementById(id);
+const E = CL.esc;
 const API = "/api/core/foodsafety";
-let KEY = new URLSearchParams(location.search).get("key") || localStorage.getItem("dwos_key") || "";
-if (KEY) localStorage.setItem("dwos_key", KEY);
-const api = (p) => API + p + (p.includes("?") ? "&" : "?") + "key=" + encodeURIComponent(KEY);
 let DEMO = false;
-
 const DEMO_TODAY = {
   unitStatus: [
-    {label:"Walk-in fridge", min:0, max:5, latest:{value:3.2, pass:true, at:"T07:12", byName:"Maria G."}, checkedCount:2},
-    {label:"Freezer", min:-30, max:-15, latest:{value:-12, pass:false, at:"T07:14", byName:"Maria G."}, checkedCount:2},
-    {label:"Prep fridge", min:0, max:5, latest:{value:4.1, pass:true, at:"T07:15", byName:"Maria G."}, checkedCount:1},
-    {label:"Bain-marie / hot hold", min:60, max:99, latest:null, checkedCount:0},
+    { label: "Walk-in fridge", min: 0, max: 5, latest: { value: 3.2, pass: true, at: "T07:12", byName: "Maria G." }, checkedCount: 2 },
+    { label: "Freezer", min: -30, max: -15, latest: { value: -12, pass: false, at: "T07:14", byName: "Maria G." }, checkedCount: 2 },
+    { label: "Prep fridge", min: 0, max: 5, latest: { value: 4.1, pass: true, at: "T07:15", byName: "Maria G." }, checkedCount: 1 },
+    { label: "Bain-marie / hot hold", min: 60, max: 99, latest: null, checkedCount: 0 },
   ],
-  failures: [{unit:"Freezer", value:-12, at:"T07:14", byName:"Maria G.", correctiveAction:"Moved stock to freezer 2, called refrigeration tech", correctiveBy:"Maria G."}],
-  cleaning: [
-    {label:"Benches & boards sanitised", done:{byName:"Aarav S.", at:"T09:40"}},
-    {label:"Floors swept & mopped", done:null},
-    {label:"Bins emptied & cleaned", done:{byName:"Binod T.", at:"T10:05"}},
-    {label:"Coolroom seals & handles", done:null},
-  ],
-  deliveries: [{supplier:"bidfood", value:3.4, pass:true, at:"T08:20", byName:"Aarav S."}],
+  failures: [{ unit: "Freezer", value: -12, at: "T07:14", byName: "Maria G.", correctiveAction: "Moved stock to freezer 2, called refrigeration tech", correctiveBy: "Maria G." }],
+  cleaning: [{ label: "Benches & boards sanitised", done: { byName: "Aarav S.", at: "T09:40" } }, { label: "Floors swept & mopped", done: null }, { label: "Bins emptied & cleaned", done: { byName: "Binod T.", at: "T10:05" } }, { label: "Coolroom seals & handles", done: null }],
+  deliveries: [{ supplier: "bidfood", value: 3.4, pass: true, at: "T08:20", byName: "Aarav S." }],
 };
-const DEMO_TRAINING = [
-  {workerName:"Binod T.", moduleTitle:"Food Safety Basics", lang:"ne", score:3, outOf:3, passed:true, completedAt:new Date().toISOString()},
-  {workerName:"Aarav S.", moduleTitle:"Food Safety Basics", lang:"en", score:2, outOf:3, passed:true, completedAt:new Date(Date.now()-3*864e5).toISOString()},
-];
+const DEMO_TRAINING = [{ workerName: "Binod T.", moduleTitle: "Food Safety Basics", lang: "ne", score: 3, outOf: 3, passed: true, completedAt: new Date().toISOString() }];
 
-async function load(retried){
-  document.getElementById("hdrDate").textContent =
-    new Date().toLocaleDateString("en-AU",{weekday:"short",day:"numeric",month:"short"});
-  try{
-    const [tRes, trRes] = await Promise.all([fetch(api("/today")), fetch(api("/training?days=90"))]);
-    if(tRes.status===401 && !retried){
-      const entered = prompt("Enter your manager dashboard key");
-      if(entered){ KEY=entered; localStorage.setItem("dwos_key",KEY); return load(true); }
-      throw new Error("no key");
-    }
-    if(!tRes.ok) throw new Error("api");
-    render(await tRes.json(), trRes.ok ? (await trRes.json()).records : []);
-  }catch(e){
-    DEMO = true;
-    document.getElementById("demoTag").style.display="inline-block";
-    render(DEMO_TODAY, DEMO_TRAINING);
+async function load() {
+  $("hdrDate").textContent = new Date().toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+  try {
+    const [t, tr] = await Promise.all([CL.api(`${API}/today`), CL.api(`${API}/training?days=90`).catch(() => ({ records: [] }))]);
+    render(t, tr.records || []);
+  } catch (e) {
+    if (e.status === 401) return;
+    DEMO = true; $("demoTag").style.display = "inline-block"; render(DEMO_TODAY, DEMO_TRAINING);
   }
 }
-
-function render(d, training){
-  document.getElementById("units").innerHTML = d.unitStatus.map(u=>{
+function render(d, training) {
+  const fails = d.unitStatus.filter((u) => u.latest && !u.latest.pass).length, unchecked = d.unitStatus.filter((u) => !u.latest).length;
+  $("sumPill").className = "pill " + (fails ? "over" : unchecked ? "warn" : "ok");
+  $("sumPill").textContent = fails ? `${fails} out of range` : unchecked ? `${unchecked} not checked yet` : "all units in range";
+  $("units").innerHTML = d.unitStatus.map((u) => {
     const st = !u.latest ? "none" : u.latest.pass ? "pass" : "fail";
-    return `<div class="unit ${st}">
-      <div class="u">${esc(u.label)}</div>
-      <div class="v">${u.latest ? fmtTemp(u.latest.value) : "—"}</div>
-      <div class="m">${u.latest ? `${tOf(u.latest.at)} · ${esc(u.latest.byName||"")} · ${u.checkedCount}× today` : "not checked yet"}</div>
-    </div>`;
+    return `<div class="unit ${st}"><div class="u">${E(u.label)}</div><div class="v">${u.latest ? u.latest.value + "°" : "—"}</div><div class="m">${u.latest ? `${tOf(u.latest.at)} · ${E(u.latest.byName || "")} · ${u.checkedCount}×` : `not checked · ${u.min}–${u.max}°C`}</div></div>`;
   }).join("");
-
-  const f = document.getElementById("failures");
-  f.innerHTML = d.failures.length ? d.failures.map(l=>`
-    <div class="row"><span><strong>${esc(l.unit||l.supplier||"")}</strong> ${l.value!=null?fmtTemp(l.value):""}</span>
-      <span class="t">${tOf(l.at)} · ${esc(l.byName||"")}</span><span class="pill fail">FAIL</span></div>
-    <div class="corrective">${l.correctiveAction?`<b>Action:</b> ${esc(l.correctiveAction)} <span class="t">— ${esc(l.correctiveBy||"")}</span>`:`<span class="pill warn">awaiting corrective action</span>`}</div>
-  `).join("") : '<span class="empty">No failures today.</span>';
-
-  document.getElementById("cleaning").innerHTML = d.cleaning.map(t=>`
-    <div class="check ${t.done?"done":""}"><span class="box">${t.done?"✓":""}</span>
-      <span>${esc(t.label)}</span>
-      <span class="who">${t.done?`${esc(t.done.byName||"")} ${tOf(t.done.at)}`:""}</span></div>`).join("");
-
-  const dl = document.getElementById("deliveries");
-  dl.innerHTML = d.deliveries.length ? d.deliveries.map(l=>`
-    <div class="row"><span><strong>${esc(l.supplier)}</strong>${l.value!=null?` ${fmtTemp(l.value)}`:""}</span>
-      <span class="t">${tOf(l.at)} · ${esc(l.byName||"")}</span>
-      ${l.pass===false?'<span class="pill fail">FAIL</span>':l.pass===true?'<span class="pill pass">PASS</span>':""}</div>`).join("")
-    : '<span class="empty">None logged today.</span>';
-
-  const tr = document.getElementById("training");
-  tr.innerHTML = training.length ? training.map(r=>`
-    <div class="row"><span><strong>${esc(r.workerName||r.workerPhone||"")}</strong> — ${esc(r.moduleTitle)} (${r.lang})</span>
-      <span class="t">${new Date(r.completedAt).toLocaleDateString("en-AU",{day:"numeric",month:"short"})}</span>
-      <span class="pill ${r.passed?"pass":"warn"}">${r.score}/${r.outOf}</span></div>`).join("")
-    : '<span class="empty">None yet.</span>';
+  $("failures").innerHTML = d.failures.length ? d.failures.map((l) => `
+    <div class="row"><div class="grow"><div class="t">${E(l.unit || l.supplier || "")} ${l.value != null ? l.value + "°C" : ""}</div><div class="s">${tOf(l.at)} · ${E(l.byName || "")}</div></div><span class="pill over">fail</span></div>
+    <div class="corrective">${l.correctiveAction ? `<b>Action:</b> ${E(l.correctiveAction)} <span class="muted">— ${E(l.correctiveBy || "")}</span>` : `<span class="pill warn">awaiting corrective action</span>`}</div>`).join("") : '<span class="empty">No failures today.</span>';
+  $("cleaning").innerHTML = d.cleaning.map((t) => `<div class="check ${t.done ? "done" : ""}"><span class="box">${t.done ? "✓" : ""}</span><span>${E(t.label)}</span><span class="who">${t.done ? `${E(t.done.byName || "")} ${tOf(t.done.at)}` : ""}</span></div>`).join("");
+  $("deliveries").innerHTML = d.deliveries.length ? d.deliveries.map((l) => `<div class="row"><div class="grow"><div class="t">${E(l.supplier)}${l.value != null ? ` ${l.value}°C` : ""}</div><div class="s">${tOf(l.at)} · ${E(l.byName || "")}</div></div>${l.pass === false ? '<span class="pill over">fail</span>' : l.pass === true ? '<span class="pill ok">pass</span>' : ""}</div>`).join("") : '<span class="empty">None logged today.</span>';
+  $("training").innerHTML = training.length ? training.map((r) => `<div class="row"><div class="grow"><div class="t">${E(r.workerName || r.workerPhone || "")}</div><div class="s">${E(r.moduleTitle)} (${r.lang}) · ${new Date(r.completedAt).toLocaleDateString("en-AU", { day: "numeric", month: "short" })}</div></div><span class="pill ${r.passed ? "ok" : "warn"}">${r.score}/${r.outOf}</span></div>`).join("") : '<span class="empty">None yet. Crew message <b>train</b> — Food Safety Basics runs in English, नेपाली and 中文.</span>';
 }
-
-document.getElementById("expBtn").onclick = ()=>{
-  const from = document.getElementById("expFrom").value, to = document.getElementById("expTo").value;
-  if(!from||!to){ alert("Pick both dates."); return; }
-  if(DEMO){ alert("Demo mode — connect the API to export real records."); return; }
-  location.href = api(`/export?from=${from}&to=${to}`);
+$("expBtn").onclick = () => {
+  const from = $("expFrom").value, to = $("expTo").value;
+  if (!from || !to) { CL.toast("Pick both dates."); return; }
+  if (DEMO) { CL.toast("Demo mode — connect Firestore to export real records."); return; }
+  location.href = CL.url(`${API}/export?from=${from}&to=${to}`);
 };
-(()=>{ // default export range: last 30 days
-  const t=new Date(), f=new Date(Date.now()-30*864e5);
-  document.getElementById("expTo").value=t.toISOString().slice(0,10);
-  document.getElementById("expFrom").value=f.toISOString().slice(0,10);
-})();
+(() => { $("expTo").value = CL.today(); $("expFrom").value = CL.addDays(CL.today(), -30); })();
 
-function fmtTemp(v){ return `${v}°C`; }
-function tOf(at){ return at && at.includes("T") ? at.split("T")[1].slice(0,5) : (at||""); }
-function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-load();
+/* ---------- settings ---------- */
+$("settingsBtn").onclick = async () => {
+  let s;
+  try { s = await CL.api(`${API}/settings`); } catch (e) { CL.toast(DEMO ? "Demo mode — settings need Firestore." : e.message); return; }
+  const unitRows = (units) => units.map((u, i) => `<div class="frow3" style="grid-template-columns:2fr 1fr 1fr;margin-bottom:8px"><input data-ul="${i}" type="text" value="${E(u.label)}" placeholder="Unit" style="min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:16px"><input data-umin="${i}" type="number" step="0.5" value="${u.min}" placeholder="min" style="min-height:44px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:16px;text-align:right"><input data-umax="${i}" type="number" step="0.5" value="${u.max}" placeholder="max" style="min-height:44px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--paper);font-size:16px;text-align:right"></div>`).join("");
+  const el = CL.makeSheet({ id: "fs-settings", title: "Diary settings", body: `
+      <div class="field"><span class="lbl">Temperature units (°C min / max)</span><div id="fs-units">${unitRows(s.units)}</div><button class="btn sm" id="fs-addu" type="button">+ Unit</button></div>
+      <label class="field"><span class="lbl">Cleaning tasks (one per line)</span><textarea id="fs-clean" rows="5" style="width:100%;min-height:110px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);font-size:15px">${s.cleaningTasks.map((t) => t.label).join("\n")}</textarea></label>
+      <label class="field"><span class="lbl">Prompt times (HH:MM, comma separated)</span><input id="fs-times" type="text" value="${E((s.scheduleTimes || []).join(", "))}" placeholder="07:00, 15:00, 21:00"></label>
+      <label class="field"><span class="lbl">Who gets the prompt (mobiles, comma separated)</span><input id="fs-phones" type="text" value="${E((s.promptPhones || []).join(", "))}" placeholder="614…, 614…"><div class="help">Leave empty and nobody is prompted; crew can still run temps any time.</div></label>
+      <p class="err" id="fs-err"></p>`, foot: `<button class="btn primary" id="fs-save" type="button">Save</button>` });
+  const sh = CL.sheet("fs-settings"); sh.open();
+  let units = s.units.map((u) => ({ ...u }));
+  el.querySelector("#fs-addu").onclick = () => { readUnits(); units.push({ id: "u" + Date.now(), label: "", min: 0, max: 5 }); el.querySelector("#fs-units").innerHTML = unitRows(units); };
+  const readUnits = () => { units = units.map((u, i) => ({ id: u.id || "u" + i, label: el.querySelector(`[data-ul="${i}"]`).value.trim(), min: Number(el.querySelector(`[data-umin="${i}"]`).value), max: Number(el.querySelector(`[data-umax="${i}"]`).value) })); };
+  el.querySelector("#fs-save").onclick = async () => {
+    readUnits();
+    const body = {
+      units: units.filter((u) => u.label),
+      cleaningTasks: el.querySelector("#fs-clean").value.split("\n").map((x) => x.trim()).filter(Boolean).map((label, i) => ({ id: (s.cleaningTasks[i] && s.cleaningTasks[i].label === label ? s.cleaningTasks[i].id : "t" + i + "_" + label.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 12)), label })),
+      scheduleTimes: el.querySelector("#fs-times").value.split(",").map((x) => x.trim()).filter((x) => /^\d{2}:\d{2}$/.test(x)),
+      promptPhones: el.querySelector("#fs-phones").value.split(",").map((x) => x.replace(/\D/g, "")).filter(Boolean),
+    };
+    try { await CL.api(`${API}/settings`, { method: "PUT", body }); sh.close(); CL.toast("Saved"); load(); } catch (e) { el.querySelector("#fs-err").textContent = e.message; }
+  };
+};
+function tOf(at) { return at && at.includes("T") ? at.split("T")[1].slice(0, 5) : (at || ""); }
+CL.tabbar("diary"); CL.topbar();
+CL.requireKey(load);
 </script>
 </body>
 </html>

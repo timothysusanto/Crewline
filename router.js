@@ -3,7 +3,6 @@
 const { sendText } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
 const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
-const { handleSpendCommand } = require("./foodCostHandler");
 const { handleRosterReply, looksLikeRosterReply } = require("./rosterReplyHandler");
 const {
   looksLikeAvailabilityReply, handleSameAgain, handleNotAvailable,
@@ -91,10 +90,6 @@ async function handleIncoming(message, deps, tenantContext = null) {
       await handleRosterQuery(from, staff, deps, sendOpts);
       return;
     }
-    if (body === "spend" || body.startsWith("spend ")) {
-      await handleSpendCommand(from, staff, body, deps, sendOpts);
-      return;
-    }
     // Credential wallet — "wallet" lists; and while a photo draft is pending
     // (10-min window), yes/no/corrections belong to it. handleWalletReply
     // returns false when nothing is pending, so it can never shadow the
@@ -152,8 +147,7 @@ async function handleIncoming(message, deps, tenantContext = null) {
         `"yes" to confirm your roster or "swap" to ask for a change, "same" to repeat last week's availability, ` +
         `"mon am pm, fri all" to set your week, ` +
         `"roster" to see your shifts, "wallet" to see your credentials (or send a photo of one to file it), ` +
-        `"temps" to run temperature checks, "clean" for the cleaning list, "train" for training modules, ` +
-        `"spend 420 bidfood" to log a delivery.`,
+        `"temps" to run temperature checks, "clean" for the cleaning list, "train" for training modules.`,
       sendOpts
     );
     return;
