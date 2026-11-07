@@ -94,3 +94,16 @@ test("Telegram: a manager sends the file, replies ADD; a crew member is refused"
     assert.equal((await stores.rosterStore.listByRange("v", "2026-11-09", "2026-11-15")).length, 19);
   } finally { tg.sendText = orig.send; tg.fetchMediaBinary = orig.fetch; }
 });
+
+test("compact 24-hour times (0530-1336, 1700-0000) and rows of RDO", async () => {
+  const t = (s) => R.parseTimes(s).ranges.map((r) => `${r.start}-${r.end}`);
+  assert.deepEqual(t("0530-1336"), ["05:30-13:36"]);
+  assert.deepEqual(t("1700-0000"), ["17:00-00:00"]);
+  assert.deepEqual(t("1430-2230"), ["14:30-22:30"]);
+  assert.deepEqual(t("RDO"), []); assert.deepEqual(t("Requested Day Off"), []);
+  assert.deepEqual(t("DDP 40 PAX + 25PAX"), []); assert.deepEqual(t("0/34"), []);
+  const csv = Buffer.from("Date,Role,9-Nov-26,10-Nov-26,11-Nov-26\nDay,Role,Monday,Tuesday,Wednesday\nNitin D,CDP,RDO,0530-1336,1500-2230\nEvents,,374,409,419\n");
+  const r = await R.importRoster(csv, { filename: "r.csv", staff: [{ name: "Nitin D", phone: "1" }], today: "2026-11-07" });
+  assert.deepEqual(r.shifts.map((s) => `${s.date} ${s.start}-${s.end}`), ["2026-11-10 05:30-13:36", "2026-11-11 15:00-22:30"]);
+  assert.deepEqual(r.unmatched, []);
+});

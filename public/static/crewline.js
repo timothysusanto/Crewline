@@ -195,15 +195,17 @@
       const awards = await CL.awards();
       const w = worker || {};
       const et = w.employmentType || "casual";
+      const pending = Boolean(worker && w.pendingMobile);
       const kind = et === "fulltime" && w.payType === "salary" ? "salary" : et;
       const el = CL.makeSheet({
         id: "cl-crew-sheet",
         title: worker ? `Edit — ${CL.esc(w.name)}` : "Add crew member",
         body: `
           <label class="field"><span class="lbl">Name</span><input id="cw-name" type="text" value="${CL.esc(w.name || "")}" autocapitalize="words"></label>
+          <label class="field"><span class="lbl">Job title (optional)</span><input id="cw-title" type="text" value="${CL.esc(w.jobTitle || "")}" placeholder="e.g. Sous Chef, CDP, Kitchen Steward" maxlength="40"></label>
           <label class="field"><span class="lbl">Mobile (the number they use on Telegram)</span>
-            <input id="cw-phone" type="tel" inputmode="tel" placeholder="614XXXXXXXX — no + or spaces" value="${CL.esc(w.phone || w.id || "")}" ${worker ? "readonly" : ""}>
-            ${worker ? '<div class="help">The number is the record — add a new person to change it.</div>' : ""}
+            <input id="cw-phone" type="tel" inputmode="tel" placeholder="0412 345 678" value="${pending ? "" : CL.esc(w.phone || w.id || "")}" ${worker && !pending ? "readonly" : ""}>
+            ${pending ? '<div class="help">Listed without a number. Add their mobile and they can link on Telegram — their shifts move with them.</div>' : worker ? '<div class="help">The number is the record — add a new person to change it.</div>' : '<div class="help">0412 345 678 is fine.</div>'}
           </label>
           <div class="field"><span class="lbl">Department</span>
             <div class="seg" id="cw-dept"><button type="button" data-v="kitchen">Kitchen</button><button type="button" data-v="service">Service</button></div>
@@ -257,6 +259,7 @@
         const body = {
           name: $("cw-name").value.trim(),
           phone: $("cw-phone").value.replace(/\D/g, ""),
+          jobTitle: $("cw-title").value.trim(),
           role: $("cw-role").value,
           department: segGet("cw-dept"),
           employmentType: k === "salary" ? "fulltime" : k,
@@ -266,11 +269,16 @@
           avatar: segGet("cw-faces") === "" || segGet("cw-faces") == null ? null : Number(segGet("cw-faces")),
           annualSalary: k === "salary" ? ($("cw-salary").value === "" ? null : Number($("cw-salary").value)) : null,
         };
-        if (!body.name || !body.phone) { $("cw-err").textContent = "Name and mobile are both needed."; return; }
+        if (!body.name || (!body.phone && !pending)) { $("cw-err").textContent = "Name and mobile are both needed."; return; }
         if (k === "salary" && !body.annualSalary) { $("cw-err").textContent = "Enter the annual salary so the week can be costed."; return; }
         $("cw-save").disabled = true;
         try {
-          if (worker) { delete body.phone; await CL.api(`/api/core/workers/${encodeURIComponent(w.id || w.phone)}`, { method: "PUT", body }); }
+          if (worker) {
+            let id = w.id || w.phone;
+            if (pending && body.phone) { const m = await CL.api(`/api/core/workers/${encodeURIComponent(id)}/mobile`, { method: "POST", body: { phone: body.phone } }); id = m.id; }
+            delete body.phone;
+            await CL.api(`/api/core/workers/${encodeURIComponent(id)}`, { method: "PUT", body });
+          }
           else await CL.api("/api/core/workers", { method: "POST", body });
           s.close(); CL.toast(worker ? "Saved" : "Added — ask them to message the bot and share their number");
           if (onSaved) onSaved();

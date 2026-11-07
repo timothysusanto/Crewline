@@ -261,6 +261,29 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
     } catch (e) { err(res, e); }
   });
 
+  // POST /api/core/workers/:id/mobile — give a crew member listed without a number their real mobile.
+  // Moves the record (and every shift on it) from the placeholder id to the phone number, which is
+  // how the bot recognises them when they share their contact. Same-venue only; never overwrites anyone.
+  router.post("/workers/:id/mobile", async (req, res) => {
+    try {
+      let phone = String(req.body.phone || "").replace(/\D/g, "");
+      if (/^0\d{9}$/.test(phone)) phone = "61" + phone.slice(1); // 0412 345 678 → 61412345678
+      if (phone.length < 9 || phone.length > 15) return res.status(400).json({ error: "That doesn't look like a mobile number. Try 0412 345 678." });
+      const oldId = String(req.params.id);
+      const cur = await staffCol.doc(oldId).get();
+      if (!cur.exists || cur.data().tenantId !== req.tenantId) return res.status(404).json({ error: "Crew member not found" });
+      if (phone === oldId) return res.json({ ok: true, id: phone });
+      const taken = await staffCol.doc(phone).get();
+      if (taken.exists) return res.status(409).json({ error: taken.data().tenantId === req.tenantId ? "Someone on your crew already has that number." : "That number is already registered at another venue." });
+      const { pendingMobile, ...data } = cur.data();
+      await staffCol.doc(phone).set({ ...data, tenantId: req.tenantId, updatedAt: now() });
+      const sh = await T(req).collection("shifts").where("workerId", "==", oldId).get();
+      await Promise.all(sh.docs.map((d) => d.ref.update({ workerId: phone })));
+      await staffCol.doc(oldId).delete();
+      res.json({ ok: true, id: phone, shiftsMoved: sh.docs.length });
+    } catch (e) { err(res, e); }
+  });
+
   router.delete("/roster/shift/:id", async (req, res) => {
     try {
       const ref = T(req).collection("shifts").doc(req.params.id);
@@ -543,6 +566,7 @@ function payFields(body, merged) {
       patch.hourlyRate = Math.round(n * 100) / 100;
     }
   }
+  if (body.jobTitle !== undefined) patch.jobTitle = String(body.jobTitle || "").trim().slice(0, 40) || null;
   if (body.avatar !== undefined) {
     // Which illustrated face (0–7); null = automatic. Telegram photo always wins when there is one.
     if (body.avatar === null || body.avatar === "") patch.avatar = null;

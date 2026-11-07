@@ -109,8 +109,8 @@ function renderCrew() {
     return `<div class="row tap" data-i="${workers.indexOf(w)}">
       <div class="avatar ${w.department === "kitchen" ? "k" : ""}">${CL.initials(w.name)}${CL.photo(w.name, w.id || w.phone, w.avatar)}</div>
       <div class="grow"><div class="t ellipsis">${E(w.name)} ${w.role && w.role !== "staff" ? `<span class="pill" style="font-size:10px">${w.role}</span>` : ""}</div>
-        <div class="s ellipsis">${kind}${w.department ? " · " + cap(w.department) : ""}${rate ? " · " + rate : ""}</div></div>
-      <span class="pill ${linked(w.phone) ? "ok" : ""}" title="Telegram">${linked(w.phone) ? "linked" : "not linked"}</span>
+        <div class="s ellipsis">${w.jobTitle ? E(w.jobTitle) + " · " : ""}${kind}${w.department ? " · " + cap(w.department) : ""}${rate ? " · " + rate : ""}</div></div>
+      ${w.pendingMobile ? `<span class="pill warn" title="Add their mobile so they can link Telegram">add mobile</span>` : `<span class="pill ${linked(w.phone) ? "ok" : ""}" title="Telegram">${linked(w.phone) ? "linked" : "not linked"}</span>`}
     </div>`;
   }).join("") : `<div class="empty">${workers.length ? "No one matches." : "No crew yet. Add your first person below."}</div>`;
   $("crewList").querySelectorAll(".row").forEach((el) => (el.onclick = () => CL.crewSheet(workers[Number(el.dataset.i)], reloadAll)));

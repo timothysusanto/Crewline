@@ -31,7 +31,18 @@ function nextMonday(fromIso) { const off = (8 - dow(fromIso)) % 7; return addDay
 
 // ---------- times ----------
 
-const RANGE_RE = /(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|a|p)?\s*(?:-|–|—|to|until|till)\s*(\d{1,2})(?:[:.h](\d{2}))?\s*(am|pm|a|p)?/gi;
+// One end of a range: "10", "10:30", "10.30", "10h30", or compact 24-hour "0530" / "1336" / "200".
+const T = String.raw`(\d{1,2}[:.h]\d{2}|\d{3,4}|\d{1,2})`;
+const RANGE_RE = new RegExp(String.raw`(?<![\d:.])${T}\s*(am|pm|a|p)?\s*(?:-|–|—|to|until|till)\s*${T}\s*(am|pm|a|p)?(?![\d:.])`, "gi");
+
+/** "0530" → [5,30]; "10:30" → [10,30]; "9" → [9,0]; null if it isn't a clock time. */
+function hm(tok) {
+  let h, m = 0;
+  if (/[:.h]/i.test(tok)) { [h, m] = tok.split(/[:.h]/i).map(Number); }
+  else if (tok.length >= 3) { h = Math.floor(+tok / 100); m = +tok % 100; }
+  else h = +tok;
+  return h <= 24 && m <= 59 ? [h, m] : null;
+}
 
 function to24(h, m, mer) {
   if (mer) { const pm = mer[0].toLowerCase() === "p"; if (pm && h < 12) h += 12; if (!pm && h === 12) h = 0; }
@@ -42,9 +53,11 @@ const hhmm = (mins) => `${pad(Math.floor(mins / 60) % 24)}:${pad(mins % 60)}`;
 /** All time ranges in a piece of text → [{start:"HH:MM", end:"HH:MM"}]; text with the times removed → rest. */
 function parseTimes(text) {
   const out = [];
-  const rest = String(text || "").replace(RANGE_RE, (_m, h1, m1, mer1, h2, m2, mer2) => {
-    let a = +h1, b = +h2; const am = m1 ? +m1 : 0, bm = m2 ? +m2 : 0;
-    if (a > 24 || b > 24 || am > 59 || bm > 59) return _m;
+  const rest = String(text || "").replace(RANGE_RE, (_m, t1, mer1, t2, mer2) => {
+    const A = hm(t1), B = hm(t2);
+    if (!A || !B) return _m;
+    const [a, am] = A, [b, bm] = B;
+    const compact = /^\d{3,4}$/.test(t1) || /^\d{3,4}$/.test(t2);
     let s, e;
     if (mer1 || mer2) {
       if (mer1) { s = to24(a, am, mer1); e = to24(b, bm, mer2 || mer1); if (!mer2 && e <= s) e += 12 * 60; }
@@ -55,7 +68,7 @@ function parseTimes(text) {
       }
     } else {
       s = a * 60 + am; e = b * 60 + bm;
-      if (a <= 12 && b <= 12 && e <= s) e += 12 * 60; // "7-3" → 07:00–15:00
+      if (!compact && a <= 12 && b <= 12 && e <= s) e += 12 * 60; // "7-3" → 07:00–15:00
     }
     if (e < s) e += 24 * 60; // overnight stays overnight (end is next day)
     out.push({ start: hhmm(s), end: hhmm(e) });

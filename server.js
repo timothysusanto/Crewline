@@ -51,6 +51,10 @@ if (backend === "in-memory" && process.env.DEMO_SEED === "1") {
     .catch((err) => console.error("[startup] demo seed failed:", err));
 }
 
+// One-off venue setup from the BOOTSTRAP_VENUE variable (see bootstrap.js). Runs once per config id.
+require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, ADMIN_TENANT_ID)
+  .catch((err) => console.error("[bootstrap] failed:", err));
+
 // Telegram is the primary channel: any message addressed to a phone number goes
 // to that person's linked Telegram chat; WhatsApp is only the fallback (see
 // whatsapp.js). Bots can't initiate, so someone who hasn't linked yet is
@@ -760,7 +764,7 @@ app.post("/api/admin/tenants", requireDashboardKey, requireAdmin, async (req, re
       `   Your dashboard key is ${dashboardKey} — keep it private, it's your login.\n` +
       `3. Add your staff on the Roster page with the mobile they use on Telegram (up to ${tenant.staffLimit}).\n` +
       `4. Everyone (you too) opens Telegram, messages @${bot}, taps "Share my phone number" — done. ` +
-      `From then on: "in"/"out" to clock in, "roster" to see shifts, "temps" for food-safety checks.\n` +
+      `From then on: "in"/"out" to clock in, "break"/"back" for breaks, "roster" to see shifts.\n` +
       `5. On the Dashboard, add your site (address + radius) so clock-ins are location-checked.\n\n` +
       `Reply to this message if anything is unclear.`;
 
