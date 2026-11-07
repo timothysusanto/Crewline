@@ -135,6 +135,8 @@ input, select, textarea { font: inherit; color: inherit; }
 .row .n { font-family: var(--font-docket); font-weight: 700; white-space: nowrap; }
 .row.tap { cursor: pointer; }
 .row.tap::after { content: "›"; color: var(--ink-3); font-size: 22px; line-height: 1; margin-left: 2px; }
+.avatar { position: relative; overflow: hidden; }
+.avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--docket-2); }
 .row .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--steel); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 14px; flex: 0 0 auto; font-family: var(--font-docket); }
 .row .avatar.k { background: var(--ember); }
 
@@ -301,3 +303,5 @@ table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 6p
 .day.tap { cursor: pointer; }
 .day.tap:active { background: var(--docket-2); }
 .pressable:active { transform: scale(.985); }
+
+.avatar.face { width: 44px; height: 44px; border-radius: 50%; background: var(--steel); color: #fff; display: grid; place-items: center; font: 800 14px var(--font-docket); margin-bottom: 8px; border: 2px solid var(--docket); box-shadow: 0 0 0 1px var(--line); }

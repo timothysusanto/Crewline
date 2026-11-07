@@ -107,7 +107,7 @@ function renderCrew() {
     const kind = w.employmentType === "fulltime" && w.payType === "salary" ? "Salaried" : ({ casual: "Casual", parttime: "Part-time", fulltime: "Full-time" }[w.employmentType] || "no pay details");
     const rate = w.payType === "salary" ? (w.annualSalary ? "$" + Number(w.annualSalary).toLocaleString("en-AU") + "/yr" : "no salary") : (w.hourlyRate || w.wageRate ? "$" + Number(w.hourlyRate || w.wageRate).toFixed(2) + "/h" : (w.level ? "award " + w.level : ""));
     return `<div class="row tap" data-i="${workers.indexOf(w)}">
-      <div class="avatar ${w.department === "kitchen" ? "k" : ""}">${CL.initials(w.name)}</div>
+      <div class="avatar ${w.department === "kitchen" ? "k" : ""}">${CL.initials(w.name)}${CL.photo(w.name)}</div>
       <div class="grow"><div class="t ellipsis">${E(w.name)} ${w.role && w.role !== "staff" ? `<span class="pill" style="font-size:10px">${w.role}</span>` : ""}</div>
         <div class="s ellipsis">${kind}${w.department ? " · " + cap(w.department) : ""}${rate ? " · " + rate : ""}</div></div>
       <span class="pill ${linked(w.phone) ? "ok" : ""}" title="Telegram">${linked(w.phone) ? "linked" : "not linked"}</span>

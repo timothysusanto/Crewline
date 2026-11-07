@@ -151,6 +151,21 @@
     today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
     addDays(ds, n) { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
     mondayOf(ds) { const d = new Date(ds + "T12:00:00"); const back = (d.getDay() + 6) % 7; return CL.addDays(ds, -back); },
+    /** Cute illustrated face for a person (same face every time for the same name). Initials sit underneath as the fallback if the image can't load. */
+    photo(name) {
+      const faces = [
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013845_19baf829-acdd-4ed8-8487-5f1a0d021e1d.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_95d87966-0b5a-4291-ac2c-38ec036c355c.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_bcc8c99a-ee50-420b-bc3b-ad801f4ea429.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_849c08da-4e34-44e8-8f64-9031be4a4bcc.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_990e6065-4a3c-4058-a99f-14de8e4fa0a7.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_88457562-91ca-45b3-bd19-025cda3fc62b.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_b6d0d6d6-5ef8-4ab7-abd0-f02c51096b06.png",
+      "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_9ed16ddd-6a6e-439c-81fd-9462d8ce88af.png",
+      ];
+      let h = 0; for (const ch of String(name || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      return `<img src="${faces[h % faces.length]}" alt="" loading="lazy" onerror="this.remove()">`;
+    },
     initials(name) { return String(name || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(); },
 
     // ---------- the crew form (one form, every page) ----------
