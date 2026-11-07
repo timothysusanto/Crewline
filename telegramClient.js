@@ -120,6 +120,29 @@ async function fetchMediaBinary(fileId, options = {}) {
   }
 }
 
+/**
+ * A person's current Telegram profile picture (small JPEG), or null if they
+ * have none, hide it from bots, or the call fails. For a private chat the chat
+ * ID is the user ID.
+ */
+async function fetchProfilePhoto(chatId, options = {}) {
+  try {
+    const r = await call("getUserProfilePhotos", { user_id: Number(chatId), limit: 1 }, options);
+    const sizes = r?.result?.photos?.[0];
+    if (!sizes || !sizes.length) return null;
+    const pick = sizes.find((x) => x.width >= 160) || sizes[sizes.length - 1];
+    const meta = await call("getFile", { file_id: pick.file_id }, options);
+    const filePath = meta?.result?.file_path;
+    if (!filePath) return null;
+    const bin = await fetch(`${API}/file/bot${token(options)}/${filePath}`);
+    if (!bin.ok) return null;
+    return { buffer: Buffer.from(await bin.arrayBuffer()), mimeType: "image/jpeg" };
+  } catch (err) {
+    console.error("[avatar] telegram error:", err.message);
+    return null;
+  }
+}
+
 /** Register the webhook. `secret` is echoed back on every update in a header. */
 function setWebhook(url, secret, options = {}) {
   return call(
@@ -129,4 +152,4 @@ function setWebhook(url, secret, options = {}) {
   );
 }
 
-module.exports = { sendText, sendLocationRequest, sendContactRequest, fetchMediaBinary, setWebhook, chunk };
+module.exports = { sendText, sendLocationRequest, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };

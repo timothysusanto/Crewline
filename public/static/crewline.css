@@ -305,3 +305,7 @@ table.grid th, table.grid td { border-bottom: 1px solid var(--line); padding: 6p
 .pressable:active { transform: scale(.985); }
 
 .avatar.face { width: 44px; height: 44px; border-radius: 50%; background: var(--steel); color: #fff; display: grid; place-items: center; font: 800 14px var(--font-docket); margin-bottom: 8px; border: 2px solid var(--docket); box-shadow: 0 0 0 1px var(--line); }
+.faces { display: flex; flex-wrap: wrap; gap: 8px; }
+.faces button { width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--line); background: var(--docket-2); padding: 0; overflow: hidden; cursor: pointer; font-size: 11px; font-weight: 800; color: var(--ink-2); }
+.faces button img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.faces button.on { border-color: var(--ember); box-shadow: 0 0 0 3px var(--ember-soft); }

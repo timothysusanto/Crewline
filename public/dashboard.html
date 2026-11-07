@@ -121,7 +121,7 @@ function render() {
   $("onShift").innerHTML = on.length ? `<div class="tickets">${on.map((s) => {
     const brk = onBreak(s);
     return `<div class="ticket"><span class="clip"></span>
-      <div class="avatar face">${CL.initials(nameOf(s.staffPhone))}${CL.photo(nameOf(s.staffPhone))}</div>
+      <div class="avatar face">${CL.initials(nameOf(s.staffPhone))}${CL.photo(nameOf(s.staffPhone), s.staffPhone, (staffOf(s.staffPhone) || {}).avatar)}</div>
       <div class="name ellipsis">${E(nameOf(s.staffPhone))}</div>
       <div class="meta ellipsis">${E(deptOf(s.staffPhone))}${s.siteName ? " · " + E(s.siteName) : ""}</div>
       <div class="big">${CL.dur(Date.now() - new Date(s.clockIn.time))}</div>
@@ -187,7 +187,7 @@ async function loadRosterToday() {
       const [sh, sm] = s.start.split(":").map(Number);
       const startM = sh * 60 + sm;
       let pill = on ? `<span class="pill ok">on</span>` : done ? `<span class="pill">done</span>` : nowM > startM + 10 ? `<span class="pill warn">${Math.round((nowM - startM))}m late</span>` : `<span class="pill">${s.published ? "rostered" : "unpublished"}</span>`;
-      return `<div class="row rost"><div class="avatar">${CL.initials(nm)}${CL.photo(nm)}</div><div class="grow"><div class="t">${E(nm)}</div><div class="s">${s.start}–${s.end}${s.role ? " · " + E(s.role) : ""}</div></div>${pill}</div>`;
+      return `<div class="row rost"><div class="avatar">${CL.initials(nm)}${CL.photo(nm, s.workerId || s.staffPhone, (staffOf(s.workerId || s.staffPhone) || {}).avatar)}</div><div class="grow"><div class="t">${E(nm)}</div><div class="s">${s.start}–${s.end}${s.role ? " · " + E(s.role) : ""}</div></div>${pill}</div>`;
     }).join("");
   } catch { $("rosterSection").style.display = "none"; }
 }

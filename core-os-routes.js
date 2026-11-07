@@ -543,6 +543,11 @@ function payFields(body, merged) {
       patch.hourlyRate = Math.round(n * 100) / 100;
     }
   }
+  if (body.avatar !== undefined) {
+    // Which illustrated face (0–7); null = automatic. Telegram photo always wins when there is one.
+    if (body.avatar === null || body.avatar === "") patch.avatar = null;
+    else { const n = parseInt(body.avatar, 10); if (!(n >= 0 && n <= 7)) return { error: "avatar must be 0–7" }; patch.avatar = n; }
+  }
   if (body.annualSalary !== undefined) {
     if (body.annualSalary === null || body.annualSalary === "") patch.annualSalary = null;
     else {

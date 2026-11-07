@@ -151,9 +151,8 @@
     today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
     addDays(ds, n) { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; },
     mondayOf(ds) { const d = new Date(ds + "T12:00:00"); const back = (d.getDay() + 6) % 7; return CL.addDays(ds, -back); },
-    /** Cute illustrated face for a person (same face every time for the same name). Initials sit underneath as the fallback if the image can't load. */
-    photo(name) {
-      const faces = [
+    /** The 8 illustrated faces. */
+    faces: [
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013845_19baf829-acdd-4ed8-8487-5f1a0d021e1d.png",
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_95d87966-0b5a-4291-ac2c-38ec036c355c.png",
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_bcc8c99a-ee50-420b-bc3b-ad801f4ea429.png",
@@ -162,9 +161,18 @@
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_88457562-91ca-45b3-bd19-025cda3fc62b.png",
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013844_b6d0d6d6-5ef8-4ab7-abd0-f02c51096b06.png",
       "https://d8j0ntlcm91z4.cloudfront.net/user_3FRty5vXjRu9dZjG8lEmb9fegvx/hf_20261107_013843_9ed16ddd-6a6e-439c-81fd-9462d8ce88af.png",
-      ];
+    ],
+    /**
+     * A person's picture, layered: their Telegram profile photo on top (when they
+     * have one), then an illustrated face (the one the manager picked, else the same
+     * face every time for the same name). Initials sit underneath as the last fallback.
+     * Each layer removes itself if it can't load.
+     */
+    photo(name, id, pick) {
       let h = 0; for (const ch of String(name || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-      return `<img src="${faces[h % faces.length]}" alt="" loading="lazy" onerror="this.remove()">`;
+      const face = CL.faces[Number.isInteger(pick) && pick >= 0 && pick < CL.faces.length ? pick : h % CL.faces.length];
+      const tg = id ? `<img src="${CL.esc(CL.url("/api/avatar/" + encodeURIComponent(id)))}" alt="" loading="lazy" onerror="this.remove()">` : "";
+      return `<img src="${face}" alt="" loading="lazy" onerror="this.remove()">${tg}`;
     },
     initials(name) { return String(name || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase(); },
 
@@ -209,6 +217,10 @@
             <label class="field" id="cw-rate-wrap"><span class="lbl">Hourly rate $</span><input id="cw-rate" type="number" inputmode="decimal" step="0.01" min="0" placeholder="award"><div class="help" id="cw-rate-help"></div></label>
           </div>
           <label class="field" id="cw-salary-wrap" style="display:none"><span class="lbl">Annual salary $ (before super)</span><input id="cw-salary" type="number" inputmode="numeric" step="100" min="0" placeholder="e.g. 78000" value="${w.annualSalary || ""}"><div class="help" id="cw-salary-help">Costed at salary ÷ 52 each week, spread over the days rostered.</div></label>
+          <div class="field"><span class="lbl">Picture</span>
+            <div class="faces" id="cw-faces"><button type="button" data-v="" class="auto">Auto</button>${CL.faces.map((f, i) => `<button type="button" data-v="${i}"><img src="${f}" alt="Face ${i + 1}"></button>`).join("")}</div>
+            <div class="help">Their Telegram profile photo is used automatically once they've linked the bot and allow it. Otherwise this face shows.</div>
+          </div>
           <label class="field"><span class="lbl">Access</span>
             <select id="cw-role"><option value="staff">Staff</option><option value="manager">Manager — gets swap requests, can open the dashboard</option><option value="owner">Owner</option></select>
           </label>
@@ -223,6 +235,8 @@
       const segSet = (segId, v) => el.querySelectorAll(`#${segId} button`).forEach((b) => b.classList.toggle("on", b.dataset.v === v));
       const segGet = (segId) => (el.querySelector(`#${segId} button.on`) || {}).dataset?.v || null;
       segSet("cw-dept", w.department || "kitchen"); segSet("cw-kind", kind);
+      segSet("cw-faces", Number.isInteger(w.avatar) ? String(w.avatar) : "");
+      el.querySelectorAll("#cw-faces button").forEach((b) => b.addEventListener("click", () => segSet("cw-faces", b.dataset.v)));
       const refresh = () => {
         const k = segGet("cw-kind");
         $("cw-salary-wrap").style.display = k === "salary" ? "" : "none";
@@ -249,6 +263,7 @@
           payType: k === "salary" ? "salary" : "hourly",
           awardCode: award.code, level: $("cw-level").value,
           hourlyRate: k === "salary" ? null : ($("cw-rate").value === "" ? null : Number($("cw-rate").value)),
+          avatar: segGet("cw-faces") === "" || segGet("cw-faces") == null ? null : Number(segGet("cw-faces")),
           annualSalary: k === "salary" ? ($("cw-salary").value === "" ? null : Number($("cw-salary").value)) : null,
         };
         if (!body.name || !body.phone) { $("cw-err").textContent = "Name and mobile are both needed."; return; }

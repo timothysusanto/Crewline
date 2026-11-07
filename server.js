@@ -817,6 +817,24 @@ const PORT = process.env.PORT || 3000;
 // /api/roster endpoint above. Gated by the same dashboard key as everything
 // else. Uses the admin Firestore connection directly (null-safe: returns 503
 // until FIREBASE_SERVICE_ACCOUNT_JSON is set).
+// A crew member's Telegram profile picture, fetched once and cached for an hour.
+// 404 when they have none (the page then shows an illustrated face or initials).
+const avatarCache = new Map(); // phone -> { at, photo|null }
+app.get("/api/avatar/:phone", requireDashboardKey, async (req, res) => {
+  try {
+    const staff = await staffStore.findByPhone(String(req.params.phone).replace(/\D/g, ""));
+    if (!staff || staff.tenantId !== req.tenantId || !staff.telegramChatId) { res.set("Cache-Control", "private, max-age=300"); return res.status(404).end(); }
+    let hit = avatarCache.get(staff.phone);
+    if (!hit || Date.now() - hit.at > 60 * 60 * 1000) {
+      hit = { at: Date.now(), photo: await require("./telegramClient").fetchProfilePhoto(staff.telegramChatId) };
+      avatarCache.set(staff.phone, hit);
+    }
+    if (!hit.photo) { res.set("Cache-Control", "private, max-age=600"); return res.status(404).end(); }
+    res.set({ "Content-Type": hit.photo.mimeType, "Cache-Control": "private, max-age=3600" });
+    res.send(hit.photo.buffer);
+  } catch (e) { res.status(404).end(); }
+});
+
 // Roster import: upload an Excel / CSV / PDF roster, see what was found, then
 // save it as draft shifts. Same reader as the Telegram bot (rosterImport.js).
 const rosterImport = require("./rosterImport");

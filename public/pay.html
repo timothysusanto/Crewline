@@ -206,7 +206,7 @@ function render() {
         <span class="${c.cycle.status === "over" ? "over" : ""}" style="${c.cycle.status === "over" ? "color:var(--red)" : c.cycle.status === "close" ? "color:var(--amber)" : ""}">${c.cycle.total}/${c.cycle.limit}h${c.cycle.over ? " · +" + c.cycle.over + "h OT" : ""}</span></div>` : "";
     return `<div class="row tap crew-row" data-i="${i}">
       <div class="l1">
-        <div class="avatar ${c.department === "kitchen" ? "k" : ""}">${CL.initials(c.name)}${CL.photo(c.name)}</div>
+        <div class="avatar ${c.department === "kitchen" ? "k" : ""}">${CL.initials(c.name)}${CL.photo(c.name, c.id, c.avatar)}</div>
         <div class="grow"><div class="t ellipsis">${E(c.name)}</div>
           <div class="s">${c.typeLabel}${c.department ? " · " + cap(c.department) : ' · <span style="color:var(--amber)">no department</span>'} · ${c.payType === "salary" ? CL.money(c.weeklySalary) + "/wk" : "$" + c.hourlyRate.toFixed(2) + (c.aboveAward ? ' <span class="ab">above award</span>' : " award " + c.level)}</div></div>
         <div class="right"><div class="n">${CL.money(c.projectedCost)}</div><div class="s">${CL.hrs(c.projectedHours)}</div></div>
@@ -225,7 +225,7 @@ function cap(s) { return s ? s[0].toUpperCase() + s.slice(1) : ""; }
 function personSheet(c) {
   const days = c.days.filter((d) => d.rosteredHours || d.workedHours || d.rosteredCost || d.actualCost);
   const body = `
-    <div class="hstack" style="margin-bottom:12px"><div class="avatar ${c.department === "kitchen" ? "k" : ""}" style="width:44px;height:44px;border-radius:50%;background:${c.department === "kitchen" ? "var(--ember)" : "var(--steel)"};color:#fff;display:grid;place-items:center;font-weight:800">${CL.initials(c.name)}${CL.photo(c.name)}</div>
+    <div class="hstack" style="margin-bottom:12px"><div class="avatar ${c.department === "kitchen" ? "k" : ""}" style="width:44px;height:44px;border-radius:50%;background:${c.department === "kitchen" ? "var(--ember)" : "var(--steel)"};color:#fff;display:grid;place-items:center;font-weight:800">${CL.initials(c.name)}${CL.photo(c.name, c.id, c.avatar)}</div>
       <div class="grow"><div style="font-weight:800">${E(c.name)}</div><div class="muted" style="font-size:13px">${c.typeLabel}${c.department ? " · " + cap(c.department) : ""} · ${c.payType === "salary" ? "$" + Math.round(c.weeklySalary * 52).toLocaleString("en-AU") + "/yr" : "HIGA " + c.level + " · $" + c.hourlyRate.toFixed(2) + "/h" + (c.aboveAward ? " (award $" + c.awardRate.toFixed(2) + ")" : "")}</div></div></div>
     <div class="grid3" style="margin-bottom:12px">
       <div class="stat"><div class="v">${CL.money(c.projectedCost)}</div><div class="l">This week</div></div>

@@ -136,7 +136,7 @@ function payProfile(worker) {
   return {
     needsSetup,
     id: worker.id || worker.phone,
-    name: worker.name,
+    name: worker.name, avatar: Number.isInteger(worker.avatar) ? worker.avatar : null,
     department: normalizeDepartment(worker.department),
     employmentType, payType, awardCode, level, awardRate,
     hourlyRate, aboveAward: hourlyRate > awardRate,
@@ -305,7 +305,7 @@ function personWeek(p, rostered, worked, ctx) {
   }
 
   return {
-    id: p.id, name: p.name, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType, needsSetup: p.needsSetup,
+    id: p.id, name: p.name, avatar: p.avatar, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType, needsSetup: p.needsSetup,
     level: p.level, hourlyRate: p.hourlyRate, awardRate: p.awardRate, aboveAward: p.aboveAward, weeklySalary: p.weeklySalary,
     rosteredHours: round2(rosteredHours), rosteredCost: round2(rosteredCost),
     workedHours: round2(workedHours), workedCost: round2(workedCost),
