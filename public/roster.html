@@ -76,7 +76,8 @@
   </div>
 
   <div class="section">
-    <h2>The week <span class="spacer"></span><button class="link" id="addWorkerBtn" type="button">+ Crew</button></h2>
+    <h2>The week <span class="spacer"></span><button class="link" id="importBtn" type="button">⬆ Import file</button> <button class="link" id="addWorkerBtn" type="button">+ Crew</button></h2>
+    <input type="file" id="importFile" hidden accept=".xlsx,.xlsm,.csv,.pdf,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
     <div class="gridwrap"><table class="roster" aria-label="Weekly roster"><thead><tr id="headRow"></tr></thead><tbody id="bodyRows"></tbody></table></div>
     <div class="legend"><span><i style="background:var(--steel)"></i>draft</span><span><i style="background:var(--green)"></i>published · ✓ confirmed</span><span><i style="background:var(--amber)"></i>swap asked</span><span>tap an empty cell to add · tap a shift to change it</span></div>
     <div id="docketFlags"></div>
@@ -318,6 +319,44 @@ $("publishBtn").onclick = async () => {
 $("prevWeek").onclick = () => { weekStart = CL.addDays(weekStart, -7); shifts.demo = false; load(); };
 CL.swipe(document.querySelector(".topbar"), { left: () => $("nextWeek").click(), right: () => $("prevWeek").click() });
 $("nextWeek").onclick = () => { weekStart = CL.addDays(weekStart, 7); shifts.demo = false; load(); };
+/* ---------- import an Excel / CSV / PDF roster ---------- */
+$("importBtn").onclick = () => { if (DEMO) { CL.toast("Connect your venue first — this is demo data"); return; } $("importFile").value = ""; $("importFile").click(); };
+$("importFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  CL.toast("Reading " + f.name + "…");
+  try {
+    const r = await CL.api(`/api/roster-import?filename=${encodeURIComponent(f.name)}&weekStart=${weekStart}`, { method: "POST", raw: f });
+    importSheet(r);
+  } catch (err) { CL.toast(err.message, 7000); }
+};
+function importSheet(r) {
+  const by = {}; r.shifts.forEach((s) => { (by[s.name] = by[s.name] || []).push(s); });
+  const people = Object.keys(by).sort();
+  const warn = [
+    r.unmatched.length ? `Not on your crew list, so skipped: ${r.unmatched.map((u) => E(u.name)).join(", ")}. Add them with + Crew, then import again.` : "",
+    r.skipped.length ? `Couldn't read ${r.skipped.length} box${r.skipped.length === 1 ? "" : "es"}: ${r.skipped.slice(0, 3).map((x) => E(x.who + " “" + x.text + "”")).join(", ")}` : "",
+  ].filter(Boolean).map((t) => `<div class="flag warn" style="margin:0 0 8px">${t}</div>`).join("");
+  const el = CL.makeSheet({ id: "import-sheet", title: "Import roster", body: `
+      <p style="margin:0 0 10px"><b>${r.shifts.length} shifts</b> for <b>${people.length} people</b>, ${CL.dayLong(r.from)} – ${CL.dayLong(r.to)}.</p>
+      ${warn}
+      <div class="card" style="padding:4px 12px">${people.map((n) => `<div class="dl"><span>${E(n)}</span><span>${by[n].length} shift${by[n].length === 1 ? "" : "s"}</span></div>`).join("")}</div>
+      <p class="hint" style="margin:10px 0 0">Saved as drafts. Shifts already on the roster are skipped. 30 min unpaid break is assumed on shifts over 5½ h — tap any shift to change it.</p>
+      <p class="err" id="i-err"></p>`, foot: `<button class="btn" id="i-add" type="button">Add as drafts</button><button class="btn primary" id="i-pub" type="button">Add &amp; send</button>` });
+  const s = CL.sheet("import-sheet"); s.open();
+  const go = async (publish) => {
+    el.querySelectorAll("button.btn").forEach((b) => (b.disabled = true));
+    try {
+      const c = await CL.api("/api/roster-import/commit", { method: "POST", body: { shifts: r.shifts } });
+      weekStart = r.weekStart; shifts.demo = false;
+      if (publish) await CL.api(`${API}/roster/publish`, { method: "POST", body: { weekStart: r.weekStart } });
+      s.close(); await load();
+      CL.toast(`${c.added} shift${c.added === 1 ? "" : "s"} added${c.skipped ? `, ${c.skipped} already there` : ""}${publish ? " and sent to the crew" : " as drafts"}`, 5000);
+    } catch (e) { el.querySelector("#i-err").textContent = e.message; el.querySelectorAll("button.btn").forEach((b) => (b.disabled = false)); }
+  };
+  el.querySelector("#i-add").onclick = () => go(false);
+  el.querySelector("#i-pub").onclick = () => go(true);
+}
+
 $("addWorkerBtn").onclick = () => CL.crewSheet(null, load);
 
 /* ---------- wallet ---------- */

@@ -817,6 +817,29 @@ const PORT = process.env.PORT || 3000;
 // /api/roster endpoint above. Gated by the same dashboard key as everything
 // else. Uses the admin Firestore connection directly (null-safe: returns 503
 // until FIREBASE_SERVICE_ACCOUNT_JSON is set).
+// Roster import: upload an Excel / CSV / PDF roster, see what was found, then
+// save it as draft shifts. Same reader as the Telegram bot (rosterImport.js).
+const rosterImport = require("./rosterImport");
+app.post("/api/roster-import", requireDashboardKey, express.raw({ type: () => true, limit: "10mb" }), async (req, res) => {
+  try {
+    if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "No file received." });
+    const weekStart = /^\d{4}-\d{2}-\d{2}$/.test(req.query.weekStart || "") ? rosterImport.mondayOf(req.query.weekStart) : undefined;
+    const crew = (await staffStore.listByTenant(req.tenantId)).filter((s) => s.active !== false);
+    const r = await rosterImport.importRoster(req.body, { filename: String(req.query.filename || ""), mime: req.get("content-type") || "", staff: crew, weekStart });
+    if (!r.ok) return res.status(422).json({ error: r.error });
+    res.json(r);
+  } catch (e) { console.error("[roster-import]", e); res.status(500).json({ error: "Couldn't read that file." }); }
+});
+app.post("/api/roster-import/commit", requireDashboardKey, async (req, res) => {
+  try {
+    const crew = new Set((await staffStore.listByTenant(req.tenantId)).map((s) => String(s.phone)));
+    const ok = (req.body.shifts || []).filter((s) => crew.has(String(s.workerId)) && /^\d{4}-\d{2}-\d{2}$/.test(s.date) && /^\d{2}:\d{2}$/.test(s.start) && /^\d{2}:\d{2}$/.test(s.end))
+      .map((s) => ({ workerId: String(s.workerId), date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: Math.max(0, parseInt(s.unpaidBreakMins, 10) || 0) }));
+    if (!ok.length) return res.status(400).json({ error: "No shifts to add." });
+    res.json({ ok: true, ...(await rosterImport.commitShifts({ rosterStore, tenantId: req.tenantId, shifts: ok, actor: "dashboard-import" })) });
+  } catch (e) { console.error("[roster-import]", e); res.status(500).json({ error: "Couldn't save the shifts." }); }
+});
+
 const coreOSRoutes = require("./core-os-routes");
 const { getFirestoreDb } = require("./firebase");
 app.use("/api/core", requireDashboardKey, coreOSRoutes({

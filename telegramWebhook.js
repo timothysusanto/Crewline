@@ -49,6 +49,9 @@ function toRouterMessage(msg, phone) {
   if (msg.document && /^image\//.test(msg.document.mime_type || "")) {
     return { ...base, type: "image", image: { id: msg.document.file_id } };
   }
+  if (msg.document && (/\.(xlsx|xlsm|xls|csv|pdf)$/i.test(msg.document.file_name || "") || /pdf|spreadsheet|excel|csv/i.test(msg.document.mime_type || ""))) {
+    return { ...base, type: "document", caption: msg.caption || "", document: { id: msg.document.file_id, name: msg.document.file_name || "", mime: msg.document.mime_type || "" } };
+  }
   if (typeof msg.text === "string") {
     return { ...base, type: "text", text: { body: cleanText(msg.text) } };
   }

@@ -3,6 +3,7 @@
 const { sendText } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
 const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
+const { handleRosterFile, handleImportReply } = require("./rosterImportHandler");
 const { handleRosterReply, looksLikeRosterReply } = require("./rosterReplyHandler");
 const {
   looksLikeAvailabilityReply, handleSameAgain, handleNotAvailable,
@@ -90,6 +91,7 @@ async function handleIncoming(message, deps, tenantContext = null) {
     // (10-min window), yes/no/corrections belong to it. handleWalletReply
     // returns false when nothing is pending, so it can never shadow the
     // availability words or a shift-offer yes/no.
+    if (await handleImportReply(from, body, tenantId, deps, sendOpts)) return;
     if (body === "wallet") {
       await handleWalletCommand(from, staff, tenantId, deps, sendOpts);
       return;
@@ -146,6 +148,11 @@ async function handleIncoming(message, deps, tenantContext = null) {
   if (type === "image") {
     // A photo is a credential for the wallet.
     await handleCredentialPhoto(from, staff, message.image, tenantId, deps, sendOpts);
+    return;
+  }
+
+  if (type === "document") {
+    await handleRosterFile(from, staff, message.document, message.caption, tenantId, deps, sendOpts);
     return;
   }
 

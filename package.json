@@ -13,8 +13,10 @@
     "test": "node --test \"test/**/*.test.js\""
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "express": "^4.19.0",
-    "firebase-admin": "^12.6.0"
+    "firebase-admin": "^12.6.0",
+    "pdfjs-dist": "^4.10.38"
   },
   "author": "Timothy Susanto",
   "license": "UNLICENSED",

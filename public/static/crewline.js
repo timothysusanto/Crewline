@@ -21,8 +21,8 @@
     async api(path, opts = {}) {
       const res = await fetch(path, {
         method: opts.method || "GET",
-        headers: { "X-Dashboard-Key": key, ...(opts.body ? { "Content-Type": "application/json" } : {}) },
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        headers: { "X-Dashboard-Key": key, ...(opts.raw ? { "Content-Type": "application/octet-stream" } : opts.body ? { "Content-Type": "application/json" } : {}) },
+        body: opts.raw ? opts.raw : opts.body ? JSON.stringify(opts.body) : undefined,
       });
       if (res.status === 401) { CL.showGate("That key doesn't open the pass — check it and try again."); throw Object.assign(new Error("unauthorised"), { status: 401 }); }
       const text = await res.text();
