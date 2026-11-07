@@ -39,7 +39,7 @@ const tg = { channel: "telegram", chatId: "100" };
 
 test("looksLikeRosterReply", () => {
   for (const w of ["yes", "YES please", "ok", "confirm", "swap", "Swap Tuesday", "can't do friday"]) assert.ok(looksLikeRosterReply(w), w);
-  for (const w of ["in", "roster", "same", "none", "temps", "wallet"]) assert.equal(looksLikeRosterReply(w), false, w);
+  for (const w of ["in", "roster", "same", "none", "train", "wallet"]) assert.equal(looksLikeRosterReply(w), false, w);
 });
 
 test("YES confirms every upcoming published shift", () =>

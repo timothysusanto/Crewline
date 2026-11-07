@@ -1,3 +1,5 @@
+> **Removed 7 Nov 2026.** The food-safety diary, check prompts and `/foodsafety` page were taken out so Crewline stays focused on roster, clock-in and payroll. The code is in git history (commit before this note) if it is ever wanted as an add-on. Training and the credential wallet stay.
+
 # Core OS — Phase 3: Hospitality Edition
 Added 22 Aug 2026. The food safety diary, scheduled check prompts, Standard 3.2.2A evidence export, and the first multilingual training module — all delivered through the WhatsApp the crew already uses, with a manager page at `/foodsafety`.
 

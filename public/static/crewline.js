@@ -70,7 +70,6 @@
         ["today", "/dashboard", "Today", '<path d="M3 11.5 12 4l9 7.5"/><path d="M5 10v10h14V10"/><path d="M10 20v-6h4v6"/>'],
         ["roster", "/roster", "Roster", '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>'],
         ["pay", "/pay", "Pay", '<rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="3"/><path d="M6 12h.01M18 12h.01"/>'],
-        ["diary", "/foodsafety", "Diary", '<path d="M14 4v9a3 3 0 1 1-4 0V4a2 2 0 1 1 4 0z"/><path d="M12 10v6"/>'],
         ["more", "/more", "More", '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'],
       ];
       const el = document.createElement("div");
@@ -108,6 +107,26 @@
       return el;
     },
 
+    /** Count a number up into an element: CL.countUp(el, 1234, (n) => CL.money(n)) */
+    countUp(el, to, fmt, ms = 650) {
+      if (!el) return;
+      const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const from = Number(el.dataset.v || 0), start = performance.now();
+      el.dataset.v = to;
+      if (reduce || !isFinite(to) || Math.abs(to - from) < 1) { el.innerHTML = fmt(to); return; }
+      const step = (t) => { const k = Math.min(1, (t - start) / ms), e = 1 - Math.pow(1 - k, 3); el.innerHTML = fmt(from + (to - from) * e); if (k < 1) requestAnimationFrame(step); };
+      requestAnimationFrame(step);
+    },
+    /** Horizontal swipe on an element: CL.swipe(el, { left(){}, right(){} }) */
+    swipe(el, h) {
+      let x0 = null, y0 = null;
+      el.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+      el.addEventListener("touchend", (e) => {
+        if (x0 == null) return;
+        const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+        if (Math.abs(dx) > 60 && Math.abs(dy) < 40) (dx < 0 ? h.left : h.right)();
+      }, { passive: true });
+    },
     toast(msg, ms = 3000) {
       let t = document.getElementById("cl-toast");
       if (!t) { t = document.createElement("div"); t.id = "cl-toast"; t.className = "toast"; document.body.appendChild(t); }

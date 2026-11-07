@@ -24,7 +24,8 @@ test("GET /week builds the seeded week with departments, crew and a cycle for fu
   try {
     const { status, json } = await call("/api/pay/week");
     assert.equal(status, 200);
-    assert.equal(json.crew.length, 6);
+    assert.equal(json.crew.length, 7);
+    assert.ok(json.flags.some((f) => f.code === "setup"), "Priya has no pay details");
     const maria = json.crew.find((c) => c.name === "Maria Gomez");
     assert.ok(maria.cycle && maria.cycle.limit === 152);
     assert.equal(json.departments.service.targetPct, 33);

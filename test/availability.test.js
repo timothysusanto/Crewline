@@ -316,7 +316,7 @@ test("the availability words don't shadow the other commands", () => {
   for (const word of ["same", "same again", "none"]) {
     assert.ok(looksLikeAvailabilityReply(word), `"${word}" should be an availability word`);
   }
-  for (const other of ["in", "out", "break", "back", "roster", "yes", "no", "temps"]) {
+  for (const other of ["in", "out", "break", "back", "roster", "yes", "no", "train"]) {
     assert.equal(looksLikeAvailabilityReply(other), false, `"${other}" must not be`);
   }
 });

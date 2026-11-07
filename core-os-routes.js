@@ -109,8 +109,10 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
 
   router.post("/workers", async (req, res) => {
     try {
-      const { name, phone, employmentType, level, awardCode, role } = req.body;
-      if (!name || !employmentType || !level) return res.status(400).json({ error: "name, employmentType and level are required" });
+      const { name, phone, awardCode, role } = req.body;
+      const employmentType = req.body.employmentType || "casual";
+      const level = req.body.level || "L1";
+      if (!name) return res.status(400).json({ error: "name is required" });
       if (!String(phone || "").replace(/\D/g, "")) return res.status(400).json({ error: "phone is required — it's how the person is matched when they message the bot" });
       if (role && !["owner", "manager", "staff"].includes(role)) return res.status(400).json({ error: 'role must be "owner", "manager", or "staff"' });
       if (!getAward(awardCode || "MA000009").levels[level]) {
@@ -231,6 +233,31 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       const holidays = await getHolidays(req);
       const cost = costShift(shift, worker, { publicHolidays: holidays });
       res.json({ id: ref.id, cost, warnings });
+    } catch (e) { err(res, e); }
+  });
+
+  // PUT /api/core/roster/shift/:id — change times, break or role. Keeps the
+  // audit trail; a published shift goes back to unpublished so the crew get
+  // the new version on the next publish.
+  router.put("/roster/shift/:id", async (req, res) => {
+    try {
+      const ref = T(req).collection("shifts").doc(req.params.id);
+      const doc = await ref.get();
+      if (!doc.exists) return res.status(404).json({ error: "Shift not found" });
+      const cur = doc.data();
+      const patch = {};
+      for (const k of ["start", "end", "role"]) if (req.body[k] !== undefined) patch[k] = req.body[k] || null;
+      if (req.body.unpaidBreakMins !== undefined) patch.unpaidBreakMins = Math.max(0, parseInt(req.body.unpaidBreakMins, 10) || 0);
+      if (req.body.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(req.body.date)) patch.date = req.body.date;
+      if (!patch.start && !cur.start || !patch.end && !cur.end) return res.status(400).json({ error: "start and end are required" });
+      if (!Object.keys(patch).length) return res.status(400).json({ error: "Nothing to change" });
+      const changed = Object.keys(patch).filter((k) => patch[k] !== cur[k]);
+      if (!changed.length) return res.json({ id: doc.id, unchanged: true });
+      patch.updatedAt = now();
+      if (cur.published) { patch.published = false; patch.confirmedAt = null; patch.swapRequestedAt = null; }
+      patch.audit = [...(cur.audit || []), { at: now(), action: "edited", by: req.body.actor || "dashboard", from: Object.fromEntries(changed.map((k) => [k, cur[k] ?? null])), to: Object.fromEntries(changed.map((k) => [k, patch[k]])) }];
+      await ref.update(patch);
+      res.json({ id: doc.id, ok: true, republish: Boolean(cur.published) });
     } catch (e) { err(res, e); }
   });
 

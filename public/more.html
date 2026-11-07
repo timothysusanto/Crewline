@@ -63,7 +63,6 @@
     <div class="section"><h2>Links</h2>
       <div class="card rows">
         <a class="row tap" id="lnkPay" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Pay settings</div><div class="s">Budget %, week start, super, 152 h cycle, public holidays</div></div></a>
-        <a class="row tap" id="lnkDiary" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Food safety diary</div><div class="s">Temperature units, cleaning list, check times</div></div></a>
         <a class="row tap" id="lnkCompliance" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Compliance pack (CSV)</div><div class="s">Every roster shift and amendment, last 90 days</div></div></a>
       </div>
     </div>
@@ -231,10 +230,19 @@ function amendSheet(s) {
 /* ---------- venue / admin ---------- */
 function renderVenue() {
   $("venueCard").innerHTML = `
-    <div class="kv"><span>Venue</span><b>${E(me ? me.name : "—")}</b></div>
+    <div class="kv"><span>Venue</span><b>${E(me ? me.name : "—")} <button class="btn sm" id="renameBtn" type="button" style="margin-left:8px">Rename</button></b></div>
     <div class="kv"><span>Staff included</span><b>${me ? me.staffLimit : "—"}</b></div>
     <div class="kv"><span>Linked on Telegram</span><b>${dash ? dash.staff.filter((s) => s.telegramChatId).length : 0} of ${dash ? dash.staff.length : 0}</b></div>
     <div class="kv"><span>Bot</span><b>@CrewLine_SuperApps_bot</b></div>`;
+  $("renameBtn").onclick = () => {
+    const el = CL.makeSheet({ id: "rename-sheet", title: "Rename venue", body: `<label class="field"><span class="lbl">Venue name (what the bot and the pages call it)</span><input id="rn-name" type="text" value="${E(me ? me.name : "")}" autocapitalize="words"></label><p class="err" id="rn-err"></p>`, foot: `<button class="btn primary" id="rn-save" type="button">Save</button>` });
+    const sh = CL.sheet("rename-sheet"); sh.open();
+    el.querySelector("#rn-save").onclick = async () => {
+      const name = el.querySelector("#rn-name").value.trim();
+      if (!name) { el.querySelector("#rn-err").textContent = "A name is needed."; return; }
+      try { await CL.api("/api/venue", { method: "POST", body: { name } }); CL.venue = null; me = await CL.venueName(); $("venueName").textContent = me.name; sh.close(); renderVenue(); CL.toast("Renamed"); } catch (e) { el.querySelector("#rn-err").textContent = e.message; }
+    };
+  };
   if (me && me.isAdmin) { $("adminSection").style.display = ""; loadTenants(); }
 }
 async function loadTenants() {
@@ -267,7 +275,7 @@ async function reloadAll() {
   try { dash = await CL.api("/api/dashboard"); } catch (e) { if (e.status === 401) return; dash = { staff: [], shifts: [] }; }
   renderHistory(); loadCrew(); loadSites(); renderVenue();
 }
-$("lnkPay").href = CL.url("/pay"); $("lnkDiary").href = CL.url("/foodsafety");
+$("lnkPay").href = CL.url("/pay");
 $("lnkCompliance").href = CL.url(`/api/core/export/compliance-pack?from=${CL.addDays(CL.today(), -90)}&to=${CL.today()}`);
 CL.tabbar("more"); CL.topbar();
 CL.requireKey(async () => {

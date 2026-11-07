@@ -154,11 +154,14 @@ function dayType(dateStr, publicHolidays = []) {
  */
 function costShift(shift, worker, opts = {}) {
   const award = getAward(worker.awardCode || "MA000009");
-  const level = award.levels[worker.level];
-  if (!level) throw new Error(`Unknown level ${worker.level} for ${award.code}`);
+  // A person added without pay details (the bot's staff list only needs a
+  // name and a number) is costed as Level 1 casual until a manager fills
+  // them in. The line says so, so the pages can flag it, nothing crashes.
+  const levelAssumed = !award.levels[worker.level];
+  const level = levelAssumed ? award.levels.L1 : award.levels[worker.level];
 
   const type = dayType(shift.date, opts.publicHolidays || []);
-  const isCasual = worker.employmentType === "casual";
+  const isCasual = worker.employmentType ? worker.employmentType === "casual" : true;
   const mult = award.penalties[isCasual ? "casual" : "permanent"][type];
 
   // Paid hours
@@ -214,7 +217,7 @@ function costShift(shift, worker, opts = {}) {
   return {
     date: shift.date, dayType: type,
     hours: round2(hours), ordinaryHours: round2(ordinaryHours), otHours: round2(otHours),
-    baseRate: base, awardRate: level.base, aboveAward: base > level.base, multiplier: mult,
+    baseRate: base, awardRate: level.base, aboveAward: base > level.base, multiplier: mult, levelAssumed,
     wageCost: round2(cost), superCost: round2(superAmt),
     totalCost: round2(cost + superAmt),
     loadings: loadingLines, otCost: round2(otCost),

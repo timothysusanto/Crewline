@@ -74,7 +74,7 @@
   </div>
 
   <div class="section">
-    <h2>By day <span class="spacer"></span><span class="muted" style="font-size:11px;letter-spacing:0;text-transform:none;font-family:var(--font-ui)">cost · % of revenue</span></h2>
+    <h2>By day <span class="spacer"></span><span class="muted" style="font-size:11px;letter-spacing:0;text-transform:none;font-family:var(--font-ui)">tap a day to enter sales</span></h2>
     <div class="days" id="daysStrip"></div>
   </div>
 
@@ -142,12 +142,14 @@ function render() {
   const fillW = hasRev ? Math.min(100, (t.pct / scaleMax) * 100) : 0;
   const tickL = (s.targets.totalPct / scaleMax) * 100;
   const pastDays = week.days.filter((d) => d.isPast).length;
+  const setupFlag = (week.flags || []).find((f) => f.code === "setup");
   $("budgetCard").innerHTML = `
+    ${setupFlag ? `<a class="flag warn" href="${CL.url("/more")}#crew" style="margin:0 0 14px;text-decoration:none">${E(setupFlag.text)} <b style="white-space:nowrap">Set up ›</b></a>` : ""}
     <div class="budget-top">
-      <div><div class="big">${CL.money(t.projected)} <small>payroll</small></div></div>
-      <div class="right"><div class="mono" style="font-weight:800;font-size:22px">${hasRev ? CL.pct(t.pct) : "—"}</div><div class="muted" style="font-size:12px">of ${hasRev ? CL.money(t.expectedRevenue) : "revenue"}</div></div>
+      <div><div class="big"><span id="bigPay"></span> <small>payroll</small></div></div>
+      <div class="right"><div class="mono" style="font-weight:800;font-size:22px" id="bigPct">${hasRev ? "" : "—"}</div><div class="muted" style="font-size:12px">of ${hasRev ? CL.money(t.expectedRevenue) : "revenue"}</div></div>
     </div>
-    <div class="gauge ${status}" style="margin-top:22px"><div class="fill" style="width:${fillW}%"></div>${hasRev ? `<div class="tick" style="left:${tickL}%" data-label="${s.targets.totalPct}% budget"></div>` : ""}</div>
+    <div class="gauge ${status}" style="margin-top:22px"><div class="fill" id="gFill" style="width:0%"></div>${hasRev ? `<div class="tick" style="left:${tickL}%" data-label="${s.targets.totalPct}% budget"></div>` : ""}</div>
     <div class="gauge-legend"><span>0%</span><span>${Math.round(scaleMax)}%</span></div>
     ${verdict}
     <div class="grid3" style="margin-top:14px">
@@ -155,7 +157,25 @@ function render() {
       <div class="stat"><div class="v">${CL.money(t.rostered)}</div><div class="l">Rostered</div></div>
       <div class="stat"><div class="v">${CL.money(t.worked)}</div><div class="l">Actual${pastDays ? ` · ${pastDays} day${pastDays === 1 ? "" : "s"}` : ""}</div></div>
     </div>
-    <div class="hint">${CL.hrs(t.hours)} this week${s.includeSuper ? " · super included" : ` · super ${CL.money(t.super)} on top`}${hasRev && t.forecastRevenue !== t.expectedRevenue ? " · using actual revenue where entered" : ""}</div>`;
+    <div class="hint">${CL.hrs(t.hours)} this week${s.includeSuper ? " · super included" : ` · super ${CL.money(t.super)} on top`}${hasRev && t.forecastRevenue !== t.expectedRevenue ? " · using actual revenue where entered" : ""}</div>
+    ${hasRev ? `<div class="whatif">
+      <div class="lbl"><span>What if revenue comes in…</span><b id="wiLbl">as forecast</b></div>
+      <input type="range" id="wi" min="-30" max="30" step="5" value="0" aria-label="Revenue what-if">
+      <div class="out" id="wiOut"></div>
+    </div>` : `<button class="btn primary block" id="fcBtn" type="button" style="margin-top:14px">Enter this week's revenue forecast</button>`}`;
+  CL.countUp($("bigPay"), t.projected, (n) => CL.money(n));
+  if (hasRev) CL.countUp($("bigPct"), t.pct, (n) => CL.pct(n));
+  requestAnimationFrame(() => requestAnimationFrame(() => { const g = $("gFill"); if (g) g.style.width = fillW + "%"; }));
+  if (hasRev) {
+    const wi = $("wi");
+    const paint = () => {
+      const k = Number(wi.value), rev = Math.round(t.expectedRevenue * (1 + k / 100)), budget = rev * s.targets.totalPct / 100, diff = budget - t.projected, pct = (t.projected / rev) * 100;
+      $("wiLbl").textContent = k === 0 ? "as forecast" : `${k > 0 ? "+" : ""}${k}% → ${CL.money(rev)}`;
+      $("wiOut").innerHTML = k === 0 ? `<span class="muted">Slide to see what a slow or busy week does to the budget.</span>`
+        : `Budget becomes <b class="mono">${CL.money(budget)}</b> · payroll ${CL.pct(pct)} · <b style="color:var(--${diff >= 0 ? "green" : "red"})">${diff >= 0 ? CL.money(diff) + " under" : CL.money(-diff) + " over"}</b>${diff < 0 ? ` — about ${CL.hrs(-diff / 32)} of casual hours to cut` : ""}`;
+    };
+    wi.addEventListener("input", paint); paint();
+  } else $("fcBtn").onclick = forecastSheet;
 
   // ----- departments -----
   const D = week.departments;
@@ -171,12 +191,13 @@ function render() {
   $("deptCard").innerHTML = deptRow("kitchen", "Kitchen", D.kitchen) + deptRow("service", "Service", D.service);
 
   // ----- days -----
-  $("daysStrip").innerHTML = week.days.map((d) => `
-    <div class="day ${d.status} ${d.isToday ? "today" : ""} ${d.isPast ? "past" : ""}" title="${E(CL.dayLong(d.date))}">
+  $("daysStrip").innerHTML = week.days.map((d, i) => `
+    <div class="day tap ${d.status} ${d.isToday ? "today" : ""} ${d.isPast ? "past" : ""}" data-i="${i}" title="${E(CL.dayLong(d.date))}">
       <div class="d">${CL.day(d.date)}</div>
       <div class="v">${d.projected ? "$" + Math.round(d.projected).toLocaleString("en-AU") : "—"}</div>
       <div class="p">${d.pct != null ? Math.round(d.pct) + "%" : (d.expected == null ? "·" : "0%")}</div>
     </div>`).join("");
+  $("daysStrip").querySelectorAll(".day").forEach((el) => (el.onclick = () => daySheet(week.days[Number(el.dataset.i)])));
 
   // ----- crew -----
   $("crewCount").textContent = `${week.crew.length} people`;
@@ -188,14 +209,14 @@ function render() {
       <div class="l1">
         <div class="avatar ${c.department === "kitchen" ? "k" : ""}">${CL.initials(c.name)}</div>
         <div class="grow"><div class="t ellipsis">${E(c.name)}</div>
-          <div class="s ellipsis">${c.typeLabel}${c.department ? " · " + cap(c.department) : ' · <span style="color:var(--amber)">no department</span>'} · ${c.payType === "salary" ? CL.money(c.weeklySalary) + "/wk" : "$" + c.hourlyRate.toFixed(2) + (c.aboveAward ? ' <span class="ab">above award</span>' : " award " + c.level)}</div></div>
+          <div class="s">${c.typeLabel}${c.department ? " · " + cap(c.department) : ' · <span style="color:var(--amber)">no department</span>'} · ${c.payType === "salary" ? CL.money(c.weeklySalary) + "/wk" : "$" + c.hourlyRate.toFixed(2) + (c.aboveAward ? ' <span class="ab">above award</span>' : " award " + c.level)}</div></div>
         <div class="right"><div class="n">${CL.money(c.projectedCost)}</div><div class="s">${CL.hrs(c.projectedHours)}</div></div>
       </div>${cyc}</div>`;
   }).join("") : `<div class="empty">No crew with pay details yet. Add them under More → Crew (employment type, level, rate or salary).</div>`;
   $("crewList").querySelectorAll(".crew-row").forEach((el) => (el.onclick = () => personSheet(week.crew[Number(el.dataset.i)])));
 
   // ----- flags -----
-  const fl = week.flags || [];
+  const fl = (week.flags || []).filter((f) => f.code !== "setup" && f.code !== "forecast");
   $("flagsSection").style.display = fl.length ? "" : "none";
   $("flags").innerHTML = fl.map((f) => `<div class="flag ${f.level}">${E(f.text)}</div>`).join("");
 }
@@ -229,6 +250,33 @@ function personSheet(c) {
     ${c.flags.length ? c.flags.map((f) => `<div class="flag ${f.level}">${E(f.text)}</div>`).join("") : ""}`;
   CL.makeSheet({ id: "person-sheet", title: "This week", body, foot: `<a class="btn" href="${CL.url("/more")}#crew">Edit pay details</a>` });
   CL.sheet("person-sheet").open();
+}
+
+/* ---------- one day ---------- */
+function daySheet(d) {
+  const people = week.crew.map((c) => ({ c, dd: c.days.find((x) => x.date === d.date) })).filter((x) => x.dd.projectedCost || x.dd.rosteredHours || x.dd.workedHours).sort((a, b) => b.dd.projectedCost - a.dd.projectedCost);
+  const r = week.revenue;
+  const body = `
+    <div class="grid3" style="margin-bottom:12px">
+      <div class="stat ${d.status}"><div class="v">${d.pct != null ? CL.pct(d.pct) : "—"}</div><div class="l">of revenue</div></div>
+      <div class="stat"><div class="v">${CL.money(d.projected)}</div><div class="l">${d.isPast ? "actual" : "rostered"} payroll</div></div>
+      <div class="stat"><div class="v">${CL.hrs(d.hours)}</div><div class="l">${people.length} people</div></div>
+    </div>
+    <div class="frow">
+      <label class="field"><span class="lbl">Revenue forecast $</span><input id="dy-f" type="number" inputmode="numeric" min="0" step="50" value="${r.forecast[d.date] ?? ""}" placeholder="${r.suggested[d.date] ?? "—"}"></label>
+      <label class="field"><span class="lbl">Actual sales $</span><input id="dy-a" type="number" inputmode="numeric" min="0" step="50" value="${r.actual[d.date] ?? ""}" placeholder="${d.isPast || d.isToday ? "end of day" : "not yet"}" ${d.isPast || d.isToday ? "" : "disabled"}></label>
+    </div>
+    <div class="card pad0" style="padding:4px 14px">${people.length ? people.map(({ c, dd }) => `<div class="detail-day"><div class="dd">${CL.initials(c.name)}<small>${c.department ? c.department.slice(0, 7) : ""}</small></div><div class="dm"><b style="color:var(--ink)">${E(c.name)}</b><br>${c.payType === "salary" ? "salary day" : (dd.lines && dd.lines[0] ? dd.lines.map((l) => l.start + "–" + l.end + " · " + l.multiplier + "×").join(", ") : "rostered " + CL.hrs(dd.rosteredHours))}</div><div class="dc">${CL.money(dd.projectedCost)}<small>${CL.hrs(dd.projectedHours)}</small></div></div>`).join("") : `<div class="empty">Nobody rostered or clocked in.</div>`}</div>
+    <p class="err" id="dy-err"></p>`;
+  const el = CL.makeSheet({ id: "day-sheet", title: CL.dayLong(d.date) + (d.dayType && d.dayType !== "weekday" ? ` · ${d.dayType === "public_holiday" ? "public holiday" : d.dayType}` : ""), body, foot: `<button class="btn primary" id="dy-save" type="button">Save revenue</button>` });
+  const sh = CL.sheet("day-sheet"); sh.open();
+  el.querySelector("#dy-save").onclick = async () => {
+    const f = el.querySelector("#dy-f").value, a = el.querySelector("#dy-a");
+    const body = { forecast: { [d.date]: f === "" ? null : Number(f) } };
+    if (!a.disabled) body.actual = { [d.date]: a.value === "" ? null : Number(a.value) };
+    try { week = await CL.api(`/api/pay/week/${weekStart}/revenue`, { method: "POST", body }); sh.close(); render(); CL.toast("Saved"); }
+    catch (e) { el.querySelector("#dy-err").textContent = e.message; }
+  };
 }
 
 /* ---------- revenue forecast ---------- */
@@ -310,6 +358,8 @@ async function settingsSheet() {
 
 /* ---------- boot ---------- */
 $("prevWeek").onclick = () => load(CL.addDays(weekStart, -7));
+CL.swipe(document.querySelector(".topbar"), { left: () => load(CL.addDays(weekStart, 7)), right: () => load(CL.addDays(weekStart, -7)) });
+CL.swipe($("budgetCard"), { left: () => load(CL.addDays(weekStart, 7)), right: () => load(CL.addDays(weekStart, -7)) });
 $("nextWeek").onclick = () => load(CL.addDays(weekStart, 7));
 $("editForecast").onclick = forecastSheet;
 $("settingsBtn").onclick = settingsSheet;

@@ -697,6 +697,18 @@ app.get("/api/me", requireDashboardKey, async (req, res) => {
   }
 });
 
+/** POST /api/venue — rename this venue (what the pages and the bot call it). */
+app.post("/api/venue", requireDashboardKey, async (req, res) => {
+  try {
+    const name = String((req.body || {}).name || "").trim().slice(0, 60);
+    if (!name) return res.status(400).json({ error: "A venue name is needed." });
+    await tenantStore.updateSettings(req.tenantId, { name });
+    res.json({ ok: true, name });
+  } catch (err) {
+    res.status(500).json({ error: "Couldn't rename the venue." });
+  }
+});
+
 /**
  * Venue provisioning — admin key only. This is what happens when a Pro
  * member joins: one call creates their venue, their owner login for the bot,
@@ -807,15 +819,6 @@ const PORT = process.env.PORT || 3000;
 // until FIREBASE_SERVICE_ACCOUNT_JSON is set).
 const coreOSRoutes = require("./core-os-routes");
 const { getFirestoreDb } = require("./firebase");
-// Hospitality Edition: food safety diary API + page. Mounted before /api/core
-// so its 503 guard (when Firestore is absent) speaks for itself.
-const foodSafetyRoutes = require("./foodSafetyRoutes");
-app.use("/api/core/foodsafety", requireDashboardKey, foodSafetyRoutes({
-  db: getFirestoreDb(),
-}));
-app.get("/foodsafety", (_req, res) => {
-  res.sendFile(path.join(__dirname, "public", "foodsafety.html"));
-});
 app.use("/api/core", requireDashboardKey, coreOSRoutes({
   db: getFirestoreDb(),
   staffStore,
@@ -844,15 +847,6 @@ app.use("/static", express.static(path.join(__dirname, "public", "static"), { ma
 // workers on WhatsApp. No-ops without Firestore; WALLET_NUDGES_DISABLED=1 off.
 const { startWalletNudges } = require("./walletNudges");
 startWalletNudges({
-  db: getFirestoreDb(),
-  listTenantIds: async () => (await tenantStore.listAll()).map((t) => t.tenantId),
-  send: (phone, text) => sendText(phone, text),
-});
-
-// Scheduled food-safety check prompts (Phase 3) — off until promptPhones is
-// configured; FOOD_SAFETY_PROMPTS_DISABLED=1 for debug instances.
-const { startFoodSafetyPrompts } = require("./foodSafetyPrompts");
-startFoodSafetyPrompts({
   db: getFirestoreDb(),
   listTenantIds: async () => (await tenantStore.listAll()).map((t) => t.tenantId),
   send: (phone, text) => sendText(phone, text),

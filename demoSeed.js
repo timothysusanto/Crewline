@@ -18,6 +18,7 @@ async function seedDemo({ staffStore, rosterStore, shiftsStore, tenantStore, sit
     { phone: "61400000004", name: "Jess Kim", role: "staff", department: "service", employmentType: "parttime", level: "L2", awardCode: "MA000009", hourlyRate: 29 },
     { phone: "61400000005", name: "Binod Thapa", role: "staff", department: "service", employmentType: "casual", level: "L1", awardCode: "MA000009" },
     { phone: "61400000006", name: "Lee Kwan", role: "staff", department: "service", employmentType: "casual", level: "L2", awardCode: "MA000009", telegramChatId: "9001" },
+    { phone: "61400000007", name: "Priya Nair", role: "staff" }, // added from the bot's list only: no pay details yet
   ];
   for (const c of crew) await staffStore.upsert({ ...c, tenantId, active: true, telegramChatId: c.telegramChatId || (c.phone.endsWith("1") || c.phone.endsWith("2") || c.phone.endsWith("4") ? "9" + c.phone.slice(-3) : null) });
 

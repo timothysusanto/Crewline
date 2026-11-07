@@ -34,6 +34,8 @@
     </div>
   </div>
 
+  <div class="section" id="setupSection" style="display:none"></div>
+
   <div class="section">
     <h2>On shift now</h2>
     <div id="onShift"><div class="empty">Loading…</div></div>
@@ -84,7 +86,28 @@ function onBreak(s) { const b = (s.breaks || [])[s.breaks ? s.breaks.length - 1 
 async function load() {
   try { data = await CL.api("/api/dashboard"); } catch (e) { if (e.status !== 401) $("onShift").innerHTML = `<div class="err">${E(e.message)}</div>`; return; }
   render();
-  loadPay(); loadRosterToday();
+  loadPay(); loadRosterToday(); loadSetup();
+}
+
+/* First-run checklist: shown until the venue has crew with pay details, a site, a forecast and a published roster. */
+async function loadSetup() {
+  try {
+    const [sites, pay] = await Promise.all([CL.api("/api/sites").catch(() => ({ sites: [] })), CL.api("/api/pay/week").catch(() => null)]);
+    const crew = (data.staff || []).filter((s) => s.role !== "owner" && s.active !== false);
+    const steps = [
+      { done: crew.length > 0, t: "Add your crew", s: crew.length ? `${crew.length} added` : "Name, mobile, department, pay", href: CL.url("/more") + "#crew" },
+      { done: crew.length > 0 && !(pay && pay.flags.some((f) => f.code === "setup")), t: "Set pay details", s: "Casual / part-time / full-time / salaried, level, rate", href: CL.url("/more") + "#crew" },
+      { done: (sites.sites || []).some((x) => x.active !== false && x.geofence), t: "Set your site", s: "Location and clock-in radius", href: CL.url("/more") + "#sites" },
+      { done: Boolean(pay && pay.totals.expectedRevenue > 0), t: "Enter this week's revenue forecast", s: "Turns payroll into a % you can manage", href: CL.url("/pay") },
+      { done: crew.some((s) => s.telegramChatId), t: "Crew say hi to the bot", s: "Each person shares their number in Telegram", href: null },
+    ];
+    const left = steps.filter((x) => !x.done).length;
+    const el = $("setupSection");
+    if (!left) { el.style.display = "none"; return; }
+    el.style.display = "";
+    el.innerHTML = `<div class="setup"><h3>Set up Crewline — ${steps.length - left} of ${steps.length} done</h3><p>Ten minutes, once. Then the week runs itself.</p>
+      ${steps.map((x, i) => `<${x.href ? `a href="${x.href}"` : "div"} class="step ${x.done ? "done" : ""}"><span class="n">${x.done ? "✓" : i + 1}</span><span class="grow"><div class="t">${x.t}</div><div class="s">${x.s}</div></span></${x.href ? "a" : "div"}>`).join("")}</div>`;
+  } catch { $("setupSection").style.display = "none"; }
 }
 
 function render() {

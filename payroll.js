@@ -130,7 +130,11 @@ function payProfile(worker) {
   const override = Number(worker.hourlyRate != null ? worker.hourlyRate : worker.wageRate);
   const hourlyRate = isFinite(override) && override > 0 ? override : awardRate;
   const annualSalary = Number(worker.annualSalary);
+  const salaryOk = isFinite(annualSalary) && annualSalary > 0;
+  // "Needs setup": the manager hasn't told us enough to cost this person properly.
+  const needsSetup = !worker.employmentType || (payType === "hourly" && !award.levels[worker.level]) || (payType === "salary" && !salaryOk) || !normalizeDepartment(worker.department);
   return {
+    needsSetup,
     id: worker.id || worker.phone,
     name: worker.name,
     department: normalizeDepartment(worker.department),
@@ -301,7 +305,7 @@ function personWeek(p, rostered, worked, ctx) {
   }
 
   return {
-    id: p.id, name: p.name, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType,
+    id: p.id, name: p.name, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType, needsSetup: p.needsSetup,
     level: p.level, hourlyRate: p.hourlyRate, awardRate: p.awardRate, aboveAward: p.aboveAward, weeklySalary: p.weeklySalary,
     rosteredHours: round2(rosteredHours), rosteredCost: round2(rosteredCost),
     workedHours: round2(workedHours), workedCost: round2(workedCost),
@@ -397,7 +401,9 @@ function buildWeek(input) {
   const other = crew.filter((c) => !c.department || c.department === "other");
 
   const flags = crew.flatMap((c) => c.flags);
-  if (expectedRevenue == null) flags.unshift({ level: "info", text: "Enter a revenue forecast to see payroll as a % of revenue." });
+  const needsSetup = crew.filter((c) => c.needsSetup);
+  if (needsSetup.length) flags.unshift({ level: "warn", code: "setup", text: `${needsSetup.length === 1 ? needsSetup[0].name + " has" : needsSetup.length + " people have"} no pay details yet — costed as casual Level 1 until you set them.` });
+  if (expectedRevenue == null) flags.unshift({ level: "info", code: "forecast", text: "Enter a revenue forecast to see payroll as a % of revenue." });
   if (other.length) flags.push({ level: "info", text: `${other.map((c) => c.name).join(", ")}: no department set — counted in the total only.` });
   const unverified = crew.some((c) => !c.aboveAward && getAward("MA000009").levels[c.level] && !getAward("MA000009").levels[c.level].verified);
   if (unverified) flags.push({ level: "info", text: "Some award rates are 2026/27 estimates — check fairwork.gov.au before the first pay run." });

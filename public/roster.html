@@ -34,8 +34,7 @@
   .shift .t { font-family: var(--font-docket); font-weight: 700; font-size: 11.5px; white-space: nowrap; }
   .shift .r { color: var(--ink-2); font-size: 11px; }
   .shift .c { font-family: var(--font-docket); font-size: 11px; color: var(--ink-2); margin-top: 1px; }
-  .shift .x { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line); background: var(--paper); font-size: 12px; line-height: 1; display: none; }
-  .shift:hover .x, .shift:focus-within .x { display: block; }
+  .shift:active { background: var(--docket-2); }
   .shift .st { font-size: 10px; margin-right: 3px; }
   /* labour docket */
   .dl { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; font-family: var(--font-docket); font-size: 14px; }
@@ -79,7 +78,7 @@
   <div class="section">
     <h2>The week <span class="spacer"></span><button class="link" id="addWorkerBtn" type="button">+ Crew</button></h2>
     <div class="gridwrap"><table class="roster" aria-label="Weekly roster"><thead><tr id="headRow"></tr></thead><tbody id="bodyRows"></tbody></table></div>
-    <div class="legend"><span><i style="background:var(--steel)"></i>draft</span><span><i style="background:var(--green)"></i>published · ✓ confirmed</span><span><i style="background:var(--amber)"></i>swap asked</span><span>tap a cell to add a shift</span></div>
+    <div class="legend"><span><i style="background:var(--steel)"></i>draft</span><span><i style="background:var(--green)"></i>published · ✓ confirmed</span><span><i style="background:var(--amber)"></i>swap asked</span><span>tap an empty cell to add · tap a shift to change it</span></div>
     <div id="docketFlags"></div>
   </div>
 
@@ -153,7 +152,7 @@ function demoRosterCost() {
 async function load() {
   try {
     const [r, w, a] = await Promise.all([CL.api(`${API}/roster?weekStart=${weekStart}`), CL.api(`${API}/workers`), CL.api(`${API}/wallet-alerts`).catch(() => ({ alerts: [] }))]);
-    workers = w.workers; shifts = r.shifts; costing = r.costing; DEMO = false;
+    workers = w.workers; shifts = r.shifts; costing = r.costing; DEMO = false; $("demoTag").style.display = "none";
     renderAlerts(a.alerts || []);
   } catch (e) {
     if (e.status === 401) return;
@@ -187,7 +186,7 @@ function render() {
       row += `<td class="cell" data-w="${E(w.id)}" data-d="${d}">` + cell.map((s) => {
         const c = costByShift[s.id];
         const cls = s.swapRequestedAt ? "swap" : s.published ? "pub" : "";
-        return `<div class="shift ${cls} ${w.department === "kitchen" ? "k" : ""}"><button class="x" data-del="${E(s.id)}" type="button" aria-label="Remove">✕</button>
+        return `<div class="shift ${cls} ${w.department === "kitchen" ? "k" : ""}" data-edit="${E(s.id)}">
           <div class="t">${s.confirmedAt ? '<span class="st" title="Confirmed">✓</span>' : s.swapRequestedAt ? '<span class="st" title="Swap requested">⇄</span>' : ""}${s.start}–${s.end}</div>${s.role ? `<div class="r ellipsis">${E(s.role)}</div>` : ""}
           <div class="c">${c ? (c.salary || salaried(w) ? "salary" : "$" + Math.round(c.totalCost)) : ""}</div></div>`;
       }).join("") + `<span class="add">+</span></td>`;
@@ -196,6 +195,8 @@ function render() {
   }).join("") || `<tr><td class="who" colspan="8"><div class="empty">No crew yet — tap + Crew.</div></td></tr>`;
 
   let flags = "";
+  const unset = workers.filter((w) => !w.employmentType || (!(w.payType === "salary") && !w.level) || !w.department);
+  if (unset.length && !DEMO) flags += `<a class="flag warn" href="${CL.url("/more")}#crew" style="text-decoration:none">${unset.length === 1 ? E(unset[0].name) + " has" : unset.length + " people have"} no pay details — costed as casual Level 1 until set. <b>Set up ›</b></a>`;
   for (const f of (costing?.weeklyOTFlags || [])) { const w = workers.find((x) => x.id === f.workerId); if (w && w.employmentType !== "fulltime") flags += `<div class="flag warn">${E(w.name)} rostered ${f.weeklyHours} h — over 38 in a week. Overtime applies.</div>`; }
   $("docketFlags").innerHTML = flags;
   renderDocket();
@@ -243,14 +244,8 @@ $("gapList").addEventListener("click", async (e) => {
 
 /* ---------- actions ---------- */
 $("bodyRows").addEventListener("click", async (e) => {
-  const del = e.target.closest("[data-del]");
-  if (del) {
-    e.stopPropagation();
-    if (!CL.confirm("Remove this shift? A record is kept in the audit trail.")) return;
-    if (DEMO) { shifts = shifts.filter((s) => s.id !== del.dataset.del); shifts.demo = true; costing = demoRosterCost(); render(); }
-    else { await CL.api(`${API}/roster/shift/${del.dataset.del}`, { method: "DELETE" }); await load(); }
-    CL.toast("Shift removed"); return;
-  }
+  const chip = e.target.closest("[data-edit]");
+  if (chip) { e.stopPropagation(); const sh = shifts.find((x) => x.id === chip.dataset.edit); if (sh) editSheet(sh); return; }
   const who = e.target.closest("td.who");
   if (who) { const w = workers.find((x) => x.id === who.dataset.w); if (w) openWallet(w); return; }
   const cell = e.target.closest("td.cell");
@@ -259,7 +254,7 @@ $("bodyRows").addEventListener("click", async (e) => {
 
 function shiftSheet(workerId, date) {
   const el = CL.makeSheet({ id: "shift-sheet", title: `Add shift — ${CL.dayLong(date)}`, body: `
-      <label class="field"><span class="lbl">Who</span><select id="f-worker">${workers.map((w) => `<option value="${E(w.id)}" ${w.id === workerId ? "selected" : ""}>${E(w.name)} (${w.level || "—"})</option>`).join("")}</select></label>
+      <label class="field"><span class="lbl">Who</span><select id="f-worker">${workers.map((w) => `<option value="${E(w.id)}" ${w.id === workerId ? "selected" : ""}>${E(w.name)}${w.department ? " · " + w.department : ""}${w.employmentType ? " · " + etShort(w.employmentType) : " · no pay details"}</option>`).join("")}</select></label>
       <div class="frow3">
         <label class="field"><span class="lbl">Start</span><input id="f-start" type="time" value="09:00"></label>
         <label class="field"><span class="lbl">Finish</span><input id="f-end" type="time" value="17:00"></label>
@@ -285,6 +280,31 @@ function shiftSheet(workerId, date) {
   };
 }
 
+function editSheet(sh) {
+  const w = workers.find((x) => x.id === sh.workerId) || { name: "?" };
+  const el = CL.makeSheet({ id: "edit-sheet", title: `${E(w.name)} — ${CL.dayLong(sh.date)}`, body: `
+      ${sh.published ? `<div class="flag info" style="margin:0 0 12px">Published${sh.confirmedAt ? " and confirmed" : ""}. Changing it un-publishes this shift; publish again to send the new time.</div>` : ""}
+      <div class="frow3">
+        <label class="field"><span class="lbl">Start</span><input id="e-start" type="time" value="${sh.start}"></label>
+        <label class="field"><span class="lbl">Finish</span><input id="e-end" type="time" value="${sh.end}"></label>
+        <label class="field"><span class="lbl">Break min</span><input id="e-break" type="number" inputmode="numeric" value="${sh.unpaidBreakMins || 0}" min="0" step="5"></label>
+      </div>
+      <label class="field"><span class="lbl">Role (optional)</span><input id="e-role" type="text" value="${E(sh.role || "")}" placeholder="e.g. Pass, Larder, Bar, FOH"></label>
+      <p class="err" id="e-err"></p>`, foot: `<button class="btn danger" id="e-del" type="button">Remove</button><button class="btn primary" id="e-save" type="button">Save</button>` });
+  const s = CL.sheet("edit-sheet"); s.open();
+  el.querySelector("#e-del").onclick = async () => {
+    if (!CL.confirm("Remove this shift? A record is kept in the audit trail.")) return;
+    if (DEMO) { shifts = shifts.filter((x) => x.id !== sh.id); shifts.demo = true; costing = demoRosterCost(); s.close(); render(); CL.toast("Shift removed (demo)"); return; }
+    try { await CL.api(`${API}/roster/shift/${sh.id}`, { method: "DELETE" }); s.close(); await load(); CL.toast("Shift removed"); } catch (e) { el.querySelector("#e-err").textContent = e.message; }
+  };
+  el.querySelector("#e-save").onclick = async () => {
+    const body = { start: el.querySelector("#e-start").value, end: el.querySelector("#e-end").value, unpaidBreakMins: parseInt(el.querySelector("#e-break").value) || 0, role: el.querySelector("#e-role").value || null };
+    if (!body.start || !body.end) { el.querySelector("#e-err").textContent = "Start and finish are needed."; return; }
+    if (DEMO) { Object.assign(sh, body, { published: false }); shifts.demo = true; costing = demoRosterCost(); s.close(); render(); CL.toast("Saved (demo)"); return; }
+    try { const r = await CL.api(`${API}/roster/shift/${sh.id}`, { method: "PUT", body }); s.close(); await load(); CL.toast(r.republish ? "Saved — publish again to send it" : "Saved"); } catch (e) { el.querySelector("#e-err").textContent = e.message; }
+  };
+}
+
 $("publishBtn").onclick = async () => {
   if (DEMO) { shifts.forEach((s) => (s.published = true)); render(); CL.toast("Demo: roster marked published"); return; }
   $("publishBtn").disabled = true;
@@ -296,6 +316,7 @@ $("publishBtn").onclick = async () => {
   $("publishBtn").disabled = false;
 };
 $("prevWeek").onclick = () => { weekStart = CL.addDays(weekStart, -7); shifts.demo = false; load(); };
+CL.swipe(document.querySelector(".topbar"), { left: () => $("nextWeek").click(), right: () => $("prevWeek").click() });
 $("nextWeek").onclick = () => { weekStart = CL.addDays(weekStart, 7); shifts.demo = false; load(); };
 $("addWorkerBtn").onclick = () => CL.crewSheet(null, load);
 
