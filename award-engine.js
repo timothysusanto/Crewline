@@ -14,6 +14,8 @@
  *  - Levels 2–6 below are ESTIMATES (2025/26 rates × 1.0475). The C13 floor changed the
  *    maths at lower levels this year — VERIFY every level against the official FWO
  *    HIGA Pay Guide before first live pay run. Update `verified: true` as you confirm.
+ *  - L1, L2, L4, L5, L6 confirmed Nov 2026 against a venue payroll system's HIGA classification
+ *    rates (Level 1 $26.44, 2 $27.08, 4 $29.45, 5 $31.30, 6 $32.13). L3 and Intro still estimates.
  */
 
 const AWARD_CONFIGS = {
@@ -25,11 +27,11 @@ const AWARD_CONFIGS = {
     levels: {
       INTRO: { label: "Introductory",              base: 25.85, verified: false },
       L1:    { label: "Level 1 — F&B/Kitchen Att.", base: 26.44, verified: true  },
-      L2:    { label: "Level 2 — Cook Gr1/HK",      base: 26.95, verified: false },
+      L2:    { label: "Level 2 — Cook Gr1/HK",      base: 27.08, verified: true  },
       L3:    { label: "Level 3 — Cook Gr2/Senior",  base: 27.34, verified: false },
-      L4:    { label: "Level 4 — Cook Gr3 (trade)", base: 28.80, verified: false },
-      L5:    { label: "Level 5 — Cook Gr4/Sup.",    base: 30.61, verified: false },
-      L6:    { label: "Level 6 — Cook Gr5",         base: 31.41, verified: false },
+      L4:    { label: "Level 4 — Cook Gr3 (trade)", base: 29.45, verified: true  },
+      L5:    { label: "Level 5 — Cook Gr4/Sup.",    base: 31.30, verified: true  },
+      L6:    { label: "Level 6 — Cook Gr5",         base: 32.13, verified: true  },
     },
     /**
      * Penalty multipliers applied to BASE rate.

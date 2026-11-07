@@ -36,6 +36,10 @@ const DEFAULT_SETTINGS = Object.freeze({
   cycleAnchor: null,               // YYYY-MM-DD, a week start the 152-hour cycle counts from
   cycleWeeks: 4,
   publicHolidays: Object.freeze([]),
+  // On-costs (leave accrual, payroll tax, workers' comp, super) as a % on top of wages.
+  // Line items always stay wages-only. When `include` is on, the budget % compares
+  // payroll *in on-cost* — the way hotel finance reports it (casual vs permanent rates).
+  oncost: Object.freeze({ include: false, casualPct: 22.17, permanentPct: 31.21 }),
 });
 
 const DEPARTMENTS = ["kitchen", "service"];
@@ -142,6 +146,8 @@ function payProfile(worker) {
     annualSalary: payType === "salary" && isFinite(annualSalary) && annualSalary > 0 ? annualSalary : null,
     weeklySalary: payType === "salary" && isFinite(annualSalary) && annualSalary > 0 ? round2(annualSalary / 52) : null,
     typeLabel: payType === "salary" ? "Salaried" : ET_LABEL[employmentType],
+    contractHours: employmentType === "parttime" && Number(worker.contractHours) > 0 ? Number(worker.contractHours) : null,
+    jobTitle: worker.jobTitle || null,
   };
 }
 
@@ -297,12 +303,18 @@ function personWeek(p, rostered, worked, ctx) {
       }
     }
   }
+  if (p.contractHours != null && Math.abs(rosteredHours - p.contractHours) >= 0.5) {
+    const h = round2(rosteredHours);
+    flags.push(h < p.contractHours
+      ? { level: "warn", code: "contract", text: `${p.name} is part-time on ${p.contractHours}h a week but rostered ${h}h. Agreed hours still have to be offered (or paid).` }
+      : { level: "warn", code: "contract", text: `${p.name} is part-time on ${p.contractHours}h a week but rostered ${h}h. Hours past the agreed ${p.contractHours}h are overtime unless the change was agreed in writing first.` });
+  }
   if (p.employmentType !== "fulltime" && rosteredHours > CYCLE_HOURS_PER_WEEK) {
     flags.push({ level: "warn", text: `${p.name} (${p.typeLabel.toLowerCase()}) is rostered ${rosteredHours}h — over 38. Overtime applies past 38 in a week.` });
   }
 
   return {
-    id: p.id, name: p.name, avatar: p.avatar, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType, needsSetup: p.needsSetup,
+    id: p.id, name: p.name, avatar: p.avatar, jobTitle: p.jobTitle, contractHours: p.contractHours, department: p.department, typeLabel: p.typeLabel, payType: p.payType, employmentType: p.employmentType, needsSetup: p.needsSetup,
     level: p.level, hourlyRate: p.hourlyRate, awardRate: p.awardRate, aboveAward: p.aboveAward, weeklySalary: p.weeklySalary,
     rosteredHours: round2(rosteredHours), rosteredCost: round2(rosteredCost),
     workedHours: round2(workedHours), workedCost: round2(workedCost),
@@ -330,7 +342,10 @@ function statusFor(pct, target) {
  *   today (YYYY-MM-DD in venue tz), cycleHours: { [workerId]: { before, after } } hours outside this week
  */
 function buildWeek(input) {
-  const settings = { ...DEFAULT_SETTINGS, ...(input.settings || {}), targets: { ...DEFAULT_SETTINGS.targets, ...((input.settings || {}).targets || {}) } };
+  const settings = { ...DEFAULT_SETTINGS, ...(input.settings || {}), targets: { ...DEFAULT_SETTINGS.targets, ...((input.settings || {}).targets || {}) },
+    oncost: { ...DEFAULT_SETTINGS.oncost, ...((input.settings || {}).oncost || {}) } };
+  const oc = settings.oncost;
+  const loadFor = (c) => (oc.include ? 1 + (c.employmentType === "casual" ? Number(oc.casualPct) || 0 : Number(oc.permanentPct) || 0) / 100 : 1);
   const weekStart = input.weekStart;
   const dates = weekDates(weekStart);
   const today = input.today || todayIn(settings.timezone);
@@ -357,6 +372,7 @@ function buildWeek(input) {
       cycle: p.employmentType === "fulltime" ? { ...cycle, limit: cycle.hours, hoursBefore: ch.before, rosteredAfter: ch.after } : null,
     });
   }).sort((a, b) => (a.department || "zz").localeCompare(b.department || "zz") || b.projectedCost - a.projectedCost);
+  for (const c of crew) { c.load = loadFor(c); c.oncostCost = round2(c.projectedCost * (c.load - 1)); }
 
   // Revenue: actual where entered, forecast otherwise.
   const forecast = (input.revenue && input.revenue.forecast) || {};
@@ -365,13 +381,14 @@ function buildWeek(input) {
     const f = num(forecast[d]), a = num(actualRev[d]);
     const expected = a != null ? a : f;
     const row = { date: d, dow: dayOfWeek(d), dayType: dayType(d, publicHolidays), forecast: f, actual: a, expected, isPast: d < today, isToday: d === today,
-      rostered: 0, worked: 0, projected: 0, kitchen: 0, service: 0, hours: 0 };
+      rostered: 0, worked: 0, projected: 0, wages: 0, kitchen: 0, service: 0, hours: 0 };
     for (const c of crew) {
       const cd = c.days.find((x) => x.date === d);
-      row.rostered += cd.rosteredCost; row.worked += cd.actualCost; row.projected += cd.projectedCost; row.hours += cd.projectedHours;
-      if (c.department === "kitchen") row.kitchen += cd.projectedCost; else if (c.department === "service") row.service += cd.projectedCost;
+      const f = c.load;
+      row.rostered += cd.rosteredCost * f; row.worked += cd.actualCost * f; row.projected += cd.projectedCost * f; row.hours += cd.projectedHours; row.wages += cd.projectedCost;
+      if (c.department === "kitchen") row.kitchen += cd.projectedCost * f; else if (c.department === "service") row.service += cd.projectedCost * f;
     }
-    for (const k of ["rostered", "worked", "projected", "kitchen", "service", "hours"]) row[k] = round2(row[k]);
+    for (const k of ["rostered", "worked", "projected", "wages", "kitchen", "service", "hours"]) row[k] = round2(row[k]);
     row.pct = expected > 0 ? round1((row.projected / expected) * 100) : null;
     row.status = statusFor(row.pct, settings.targets.totalPct);
     return row;
@@ -385,11 +402,13 @@ function buildWeek(input) {
 
   const dept = (key, targetPct) => {
     const members = key === "total" ? crew : crew.filter((c) => c.department === key);
-    const rostered = sum(members, "rosteredCost"), projected = sum(members, "projectedCost"), worked = sum(members, "workedCost");
+    const lsum = (k) => round2(members.reduce((t, c) => t + (c[k] || 0) * c.load, 0));
+    const rostered = lsum("rosteredCost"), projected = lsum("projectedCost"), worked = lsum("workedCost");
+    const wages = sum(members, "projectedCost");
     const budget = expectedRevenue != null ? round2(expectedRevenue * targetPct / 100) : null;
     const pct = expectedRevenue > 0 ? round1((projected / expectedRevenue) * 100) : null;
     return {
-      key, targetPct, budget, rostered, projected, worked, hours: sum(members, "projectedHours"), headcount: members.length,
+      key, targetPct, budget, rostered, projected, worked, wages, oncost: round2(projected - wages), hours: sum(members, "projectedHours"), headcount: members.length,
       pct, status: statusFor(pct, targetPct), variance: budget != null ? round2(budget - projected) : null,
     };
   };
@@ -409,7 +428,7 @@ function buildWeek(input) {
     cycle, days, departments, crew,
     totals: {
       rostered: departments.total.rostered, projected: departments.total.projected, worked: departments.total.worked,
-      hours: departments.total.hours,
+      hours: departments.total.hours, wages: departments.total.wages, oncost: departments.total.oncost, inOncost: Boolean(oc.include),
       expectedRevenue, forecastRevenue, budget: departments.total.budget,
       pct: departments.total.pct, status: departments.total.status, variance: departments.total.variance,
     },

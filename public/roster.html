@@ -207,10 +207,12 @@ function renderDocket() {
   $("dSalRow").style.display = sal ? "" : "none"; $("dSal").textContent = CL.money(sal);
   $("dTotal").textContent = CL.money(t.wage + sal);
   if (payWeek && payWeek.totals.expectedRevenue > 0) {
-    const pct = ((t.wage + sal) / payWeek.totals.expectedRevenue) * 100;
+    // Same basis as the Pay page: if the venue compares in on-cost, load the roster cost the same way.
+    const load = payWeek.totals.inOncost && payWeek.totals.wages > 0 ? payWeek.totals.projected / payWeek.totals.wages : 1;
+    const pct = ((t.wage + sal) * load / payWeek.totals.expectedRevenue) * 100;
     const st = pct <= payWeek.settings.targets.totalPct ? "ok" : pct <= payWeek.settings.targets.totalPct + 3 ? "warn" : "over";
     $("dPct").innerHTML = `<span class="pill ${st}">${CL.pct(pct)} of ${CL.money(payWeek.totals.expectedRevenue)}</span>`;
-    $("dHint").textContent = `Budget is ${payWeek.settings.targets.totalPct}% (${CL.money(payWeek.totals.budget)}). Wages only; super is an on-cost. The Pay page has actuals and the 152-hour cycle.`;
+    $("dHint").textContent = `Budget is ${payWeek.settings.targets.totalPct}% (${CL.money(payWeek.totals.budget)}). ${payWeek.totals.inOncost ? "Compared in on-cost, like the hotel report." : "Wages only."} The Pay page has actuals and the 152-hour cycle.`;
   } else { $("dPct").textContent = "—"; $("dHint").innerHTML = `Set a revenue forecast on the <a href="${CL.url("/pay")}">Pay page</a> to see this as a %.`; }
   if (costing?.hasUnverifiedRates && !DEMO) $("docketFlags").insertAdjacentHTML("beforeend", `<div class="flag info">Some award rates are 2026/27 estimates — check fairwork.gov.au before the first pay run.</div>`);
 }

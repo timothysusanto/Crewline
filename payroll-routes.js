@@ -50,6 +50,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     const tenant = (await tenantStore.findById(req.tenantId)) || {};
     const s = { ...P.DEFAULT_SETTINGS, ...(tenant.payroll || {}) };
     s.targets = { ...P.DEFAULT_SETTINGS.targets, ...((tenant.payroll || {}).targets || {}) };
+    s.oncost = { ...P.DEFAULT_SETTINGS.oncost, ...((tenant.payroll || {}).oncost || {}) };
     s.publicHolidays = Array.isArray(s.publicHolidays) ? s.publicHolidays : [];
     // Legacy: public holidays entered on the old cost-settings panel.
     if (!s.publicHolidays.length && tenant.penaltyRules && Array.isArray(tenant.penaltyRules.publicHolidays)) {
@@ -183,6 +184,11 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
         if (!/^\d{4}-\d{2}-\d{2}$/.test(b.cycleAnchor)) return res.status(400).json({ error: "cycleAnchor must be YYYY-MM-DD." });
         next.cycleAnchor = P.weekStartFor(b.cycleAnchor, next.weekStartsOn);
       }
+      if (b.oncost) {
+        const c = Number(b.oncost.casualPct), p = Number(b.oncost.permanentPct);
+        if (!(c >= 0 && c <= 60) || !(p >= 0 && p <= 60)) return res.status(400).json({ error: "On-cost % must be between 0 and 60." });
+        next.oncost = { include: Boolean(b.oncost.include), casualPct: Math.round(c * 100) / 100, permanentPct: Math.round(p * 100) / 100 };
+      }
       if (Array.isArray(b.publicHolidays)) {
         next.publicHolidays = [...new Set(b.publicHolidays.map(String).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().slice(0, 60);
       }
@@ -190,7 +196,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       next.cycleAnchor = P.weekStartFor(next.cycleAnchor || P.todayIn(next.timezone), next.weekStartsOn);
       const payroll = {
         weekStartsOn: next.weekStartsOn, timezone: next.timezone, targets: next.targets,
-        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays,
+        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays, oncost: next.oncost,
       };
       await tenantStore.updateSettings(req.tenantId, { payroll });
       // The roster page's award costing reads public holidays from here.
@@ -221,7 +227,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
         if (c.cycle && c.cycle.overtimePremium) rows.push([c.name, c.department || "", c.typeLabel, c.level, c.hourlyRate.toFixed(2), "", "", "", "", "", "", "", "", c.cycle.overtimeHoursThisWeek, c.cycle.overtimePremium.toFixed(2), "152h cycle overtime premium"]);
       }
       rows.push([]);
-      rows.push(["Totals", "", "", "", "", "", "", "", "", "", week.totals.hours, "", "", "", week.totals.projected.toFixed(2), `week ${week.weekStart} to ${week.weekEnd}; wages only (super is an on-cost, not included)`]);
+      rows.push(["Totals", "", "", "", "", "", "", "", "", "", week.totals.hours, "", "", "", week.totals.projected.toFixed(2), week.totals.inOncost ? `week ${week.weekStart} to ${week.weekEnd}; in on-cost (wages ${week.totals.wages.toFixed(2)} + on-costs ${week.totals.oncost.toFixed(2)})` : `week ${week.weekStart} to ${week.weekEnd}; wages only (on-costs not included)`]);
       for (const k of ["kitchen", "service", "total"]) {
         const d = week.departments[k];
         rows.push([k, "", "", "", "", "", "", "", "", "", d.hours, "", "", "", d.projected.toFixed(2), d.budget != null ? `budget ${d.budget.toFixed(2)} (${d.targetPct}% of ${week.totals.expectedRevenue}); ${d.pct}%` : "no revenue forecast"]);
@@ -232,6 +238,9 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     } catch (e) { err(res, e); }
   });
 
+  // Used by the one-off venue setup (bootstrap.js) to load revenue forecasts.
+  router.readWeek = readWeek;
+  router.writeWeek = writeWeek;
   return router;
 };
 

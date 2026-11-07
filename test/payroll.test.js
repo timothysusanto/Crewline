@@ -239,3 +239,29 @@ test("spreadWeekTotal follows the pattern and lands exactly on the total", () =>
   const even = P.spreadWeekTotal(WEEK, 700, null);
   assert.equal(even["2026-11-02"], 100);
 });
+
+test("on-cost: budget compares in on-cost when switched on; wages stay wages", () => {
+  const shifts = [
+    { workerId: casual.phone, date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 0 },
+    { workerId: salaried.phone, date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 0 },
+  ];
+  const base = { weekStart: WEEK, today: "2026-11-01", workers: [casual, salaried], rosterShifts: shifts, revenue: { forecast: { "2026-11-03": 10000 } } };
+  const off = P.buildWeek({ ...base, settings: { timezone: TZ } });
+  const on = P.buildWeek({ ...base, settings: { timezone: TZ, oncost: { include: true, casualPct: 22.17, permanentPct: 31.21 } } });
+  assert.equal(off.totals.inOncost, false);
+  assert.equal(off.totals.projected, off.totals.wages);
+  assert.equal(on.totals.wages, off.totals.wages, "wages never change");
+  const cas = off.crew.find((c) => c.id === casual.phone).projectedCost, sal = off.crew.find((c) => c.id === salaried.phone).projectedCost;
+  assert.equal(on.totals.projected, Math.round((cas * 1.2217 + sal * 1.3121) * 100) / 100);
+  assert.equal(on.totals.oncost, Math.round((on.totals.projected - on.totals.wages) * 100) / 100);
+  assert.ok(on.totals.pct > off.totals.pct);
+});
+
+test("part-time contract hours: warns below and above the agreed hours", () => {
+  const pt = { phone: "61400000009", name: "Jenna", employmentType: "parttime", level: "L2", department: "kitchen", contractHours: 8 };
+  const none = P.buildWeek({ weekStart: WEEK, today: "2026-11-01", workers: [pt], rosterShifts: [], settings: { timezone: TZ } });
+  assert.match(none.flags.find((f) => f.code === "contract").text, /8h a week but rostered 0h/);
+  const over = P.buildWeek({ weekStart: WEEK, today: "2026-11-01", workers: [{ ...pt, contractHours: 4 }],
+    rosterShifts: [{ workerId: pt.phone, date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 30 }], settings: { timezone: TZ } });
+  assert.match(over.flags.find((f) => f.code === "contract").text, /overtime unless/);
+});

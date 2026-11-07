@@ -51,10 +51,6 @@ if (backend === "in-memory" && process.env.DEMO_SEED === "1") {
     .catch((err) => console.error("[startup] demo seed failed:", err));
 }
 
-// One-off venue setup from the BOOTSTRAP_VENUE variable (see bootstrap.js). Runs once per config id.
-require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, ADMIN_TENANT_ID)
-  .catch((err) => console.error("[bootstrap] failed:", err));
-
 // Telegram is the primary channel: any message addressed to a phone number goes
 // to that person's linked Telegram chat; WhatsApp is only the fallback (see
 // whatsapp.js). Bots can't initiate, so someone who hasn't linked yet is
@@ -877,9 +873,19 @@ app.get("/roster", (_req, res) => {
 // The Pay page: this week's payroll against the revenue budget, HIGA costing,
 // the 152-hour cycle for full-timers, and the Monday pay-run CSV.
 const payrollRoutes = require("./payroll-routes");
-app.use("/api/pay", requireDashboardKey, payrollRoutes({
-  db: getFirestoreDb(), staffStore, tenantStore, shiftsStore, rosterStore,
-}));
+const payRouter = payrollRoutes({ db: getFirestoreDb(), staffStore, tenantStore, shiftsStore, rosterStore });
+app.use("/api/pay", requireDashboardKey, payRouter);
+
+// One-off venue setup from the BOOTSTRAP_VENUE variable (see bootstrap.js). Runs once per config id.
+require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, ADMIN_TENANT_ID, undefined, console, {
+  readWeek: payRouter.readWeek,
+  writeWeek: payRouter.writeWeek,
+  // The roster page's award costing reads public holidays from this doc.
+  writeHolidays: async (tenantId, dates) => {
+    const db = getFirestoreDb();
+    if (db) await db.collection("tenants").doc(tenantId).collection("settings").doc("publicHolidays").set({ dates }, { merge: true });
+  },
+}).catch((err) => console.error("[bootstrap] failed:", err));
 app.get("/pay", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "pay.html"));
 });

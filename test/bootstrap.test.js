@@ -60,3 +60,29 @@ test("no config, or bad JSON, does nothing", async () => {
   assert.deepEqual(await runBootstrap(st, "v", undefined, quiet), { skipped: "no config" });
   assert.deepEqual(await runBootstrap(st, "v", "{nope", quiet), { error: "bad json" });
 });
+
+test("a second config: `set` updates existing crew, settings merge, forecasts fill empty days only", async () => {
+  const st = await setup();
+  await runBootstrap(st, "v", JSON.stringify(cfg), quiet);
+  const weeks = new Map();
+  const extras = {
+    readWeek: async (t, ws) => weeks.get(ws) || { weekStart: ws, forecast: {}, actual: {} },
+    writeWeek: async (t, ws, doc) => weeks.set(ws, { weekStart: ws, ...doc }),
+    writeHolidays: async () => {},
+  };
+  weeks.set("2026-11-09", { weekStart: "2026-11-09", forecast: { "2026-11-10": 999 }, actual: {} });
+  const cfg2 = { id: "t2", payroll: { oncost: { include: true, casualPct: 22.17, permanentPct: 31.21 }, publicHolidays: ["2026-12-25"] },
+    crew: [{ name: "Sam S", set: { employmentType: "fulltime", payType: "salary", annualSalary: 80000, jobTitle: "Junior Sous Chef" } }],
+    forecast: { "2026-11-10": 5000, "2026-11-11": 6000, "2026-11-16": 7000 } };
+  const r = await runBootstrap(st, "v", JSON.stringify(cfg2), quiet, extras);
+  assert.equal(r.forecastDays, 2);
+  assert.equal(weeks.get("2026-11-09").forecast["2026-11-10"], 999, "manager's number kept");
+  assert.equal(weeks.get("2026-11-09").forecast["2026-11-11"], 6000);
+  assert.equal(weeks.get("2026-11-16").forecast["2026-11-16"], 7000);
+  const sam = (await st.staffStore.listByTenant("v")).find((s) => s.name === "Sam S");
+  assert.deepEqual([sam.payType, sam.annualSalary, sam.jobTitle, sam.tenantId], ["salary", 80000, "Junior Sous Chef", "v"]);
+  const t = await st.tenantStore.findById("v");
+  assert.equal(t.payroll.timezone, "Australia/Perth", "earlier settings kept");
+  assert.equal(t.payroll.oncost.include, true);
+  assert.deepEqual(t.payroll.publicHolidays, ["2026-12-25"]);
+});
