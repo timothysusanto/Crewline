@@ -33,7 +33,6 @@ const DEFAULT_SETTINGS = Object.freeze({
   weekStartsOn: 1,                 // 0 Sun … 6 Sat. Hospitality pay weeks mostly start Monday.
   timezone: "Australia/Sydney",
   targets: Object.freeze({ kitchenPct: 22, totalPct: 55 }),
-  includeSuper: false,             // count the 12% SG in payroll cost? Budgets often exclude it.
   cycleAnchor: null,               // YYYY-MM-DD, a week start the 152-hour cycle counts from
   cycleWeeks: 4,
   publicHolidays: Object.freeze([]),
@@ -143,7 +142,6 @@ function payProfile(worker) {
     annualSalary: payType === "salary" && isFinite(annualSalary) && annualSalary > 0 ? annualSalary : null,
     weeklySalary: payType === "salary" && isFinite(annualSalary) && annualSalary > 0 ? round2(annualSalary / 52) : null,
     typeLabel: payType === "salary" ? "Salaried" : ET_LABEL[employmentType],
-    superRate: award.superRate,
   };
 }
 
@@ -196,13 +194,13 @@ function rosterShiftHours(s) {
 
 /**
  * Cost an hourly shift under the award, with the venue's above-award rate if any.
- * Returns the award-engine line plus `wage` (what the budget counts) and `cost`
- * (wage, or wage + super when the venue counts super).
+ * Returns the award-engine line plus `wage` and `cost`: the wage only. Super is an
+ * on-cost, never part of payroll or the payroll budget.
  */
-function costHourly(shift, profile, publicHolidays, includeSuper) {
+function costHourly(shift, profile, publicHolidays) {
   const worker = { employmentType: profile.employmentType, level: profile.level, awardCode: profile.awardCode, hourlyRate: profile.hourlyRate };
   const line = costShift(shift, worker, { publicHolidays });
-  return { ...line, wage: line.wageCost, cost: includeSuper ? line.totalCost : line.wageCost };
+  return { ...line, wage: line.wageCost, cost: line.wageCost };
 }
 
 /** Which dates a salaried person's weekly cost is spread over. */
@@ -216,16 +214,16 @@ function salaryDays(weekStart, rosteredDates) {
  * @param {object} p   payProfile()
  * @param {object[]} rostered  roster shifts for this person in the week (date/start/end/unpaidBreakMins)
  * @param {object[]} worked    attendanceToShift() results for this person in the week
- * @param {object} ctx { weekStart, today, publicHolidays, includeSuper, cycle: { hoursBefore, rosteredAfter, limit } }
+ * @param {object} ctx { weekStart, today, publicHolidays, cycle: { hoursBefore, rosteredAfter, limit } }
  */
 function personWeek(p, rostered, worked, ctx) {
-  const { weekStart, today, publicHolidays, includeSuper } = ctx;
+  const { weekStart, today, publicHolidays } = ctx;
   const dates = weekDates(weekStart);
   const byDate = {};
   for (const d of dates) byDate[d] = { date: d, rosteredHours: 0, rosteredCost: 0, workedHours: 0, workedCost: 0, actualCost: 0, lines: [] };
 
   const flags = [];
-  let rosteredHours = 0, rosteredCost = 0, workedHours = 0, workedCost = 0, superCost = 0;
+  let rosteredHours = 0, rosteredCost = 0, workedHours = 0, workedCost = 0;
 
   if (p.payType === "salary") {
     const weekly = p.weeklySalary || 0;
@@ -242,16 +240,15 @@ function personWeek(p, rostered, worked, ctx) {
     for (const s of worked) { workedHours += s.hours; if (byDate[s.date]) byDate[s.date].workedHours += s.hours; }
     rosteredCost = days.reduce((t, d) => t + (byDate[d] ? byDate[d].rosteredCost : 0), 0);
     workedCost = dates.reduce((t, d) => t + byDate[d].actualCost, 0);
-    superCost = round2(rosteredCost * p.superRate);
   } else {
     for (const s of rostered) {
-      const c = costHourly(s, p, publicHolidays, includeSuper);
+      const c = costHourly(s, p, publicHolidays);
       rosteredHours += c.hours; rosteredCost += c.cost;
       if (byDate[s.date]) { byDate[s.date].rosteredHours += c.hours; byDate[s.date].rosteredCost += c.cost; }
     }
     for (const s of worked) {
-      const c = costHourly(s, p, publicHolidays, includeSuper);
-      workedHours += c.hours; workedCost += c.cost; superCost += c.superCost;
+      const c = costHourly(s, p, publicHolidays);
+      workedHours += c.hours; workedCost += c.cost;
       if (byDate[s.date]) {
         byDate[s.date].workedHours += c.hours; byDate[s.date].workedCost += c.cost; byDate[s.date].actualCost += c.cost;
         byDate[s.date].lines.push({ ...s, dayType: c.dayType, multiplier: c.multiplier, rate: p.hourlyRate, wage: c.wage, cost: c.cost, loadings: c.loadings, otHours: c.otHours });
@@ -310,7 +307,6 @@ function personWeek(p, rostered, worked, ctx) {
     rosteredHours: round2(rosteredHours), rosteredCost: round2(rosteredCost),
     workedHours: round2(workedHours), workedCost: round2(workedCost),
     projectedHours: round2(projectedHours), projectedCost: round2(projectedCost),
-    superCost: round2(superCost),
     shiftsRostered: rostered.length, shiftsWorked: worked.length,
     days: dates.map((d) => byDate[d]),
     cycle, flags,
@@ -357,7 +353,7 @@ function buildWeek(input) {
   const crew = profiles.map((p) => {
     const ch = (input.cycleHours || {})[p.id] || { before: 0, after: 0 };
     return personWeek(p, byWorkerRoster[p.id] || [], byWorkerWorked[p.id] || [], {
-      weekStart, today, publicHolidays, includeSuper: settings.includeSuper,
+      weekStart, today, publicHolidays,
       cycle: p.employmentType === "fulltime" ? { ...cycle, limit: cycle.hours, hoursBefore: ch.before, rosteredAfter: ch.after } : null,
     });
   }).sort((a, b) => (a.department || "zz").localeCompare(b.department || "zz") || b.projectedCost - a.projectedCost);
@@ -413,7 +409,7 @@ function buildWeek(input) {
     cycle, days, departments, crew,
     totals: {
       rostered: departments.total.rostered, projected: departments.total.projected, worked: departments.total.worked,
-      hours: departments.total.hours, super: sum(crew, "superCost"),
+      hours: departments.total.hours,
       expectedRevenue, forecastRevenue, budget: departments.total.budget,
       pct: departments.total.pct, status: departments.total.status, variance: departments.total.variance,
     },

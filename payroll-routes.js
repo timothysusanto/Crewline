@@ -6,7 +6,7 @@
  *
  *   GET  /api/pay/week?start=YYYY-MM-DD      the week: budget, by day, by person, 152h cycle
  *   POST /api/pay/week/:start/revenue        { forecast?:{date:$}, actual?:{date:$}, weekTotal?:$ }
- *   GET  /api/pay/settings                   targets, week start, timezone, super, cycle, public holidays
+ *   GET  /api/pay/settings                   targets, week start, timezone, cycle, public holidays
  *   POST /api/pay/settings
  *   GET  /api/pay/export.csv?start=YYYY-MM-DD the pay run, one line per person per day
  *
@@ -179,7 +179,6 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
         if (k > t) return res.status(400).json({ error: "Kitchen % can't be more than the total payroll %." });
         next.targets = { kitchenPct: Math.round(k * 10) / 10, totalPct: Math.round(t * 10) / 10 };
       }
-      if (b.includeSuper != null) next.includeSuper = Boolean(b.includeSuper);
       if (b.cycleAnchor) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(b.cycleAnchor)) return res.status(400).json({ error: "cycleAnchor must be YYYY-MM-DD." });
         next.cycleAnchor = P.weekStartFor(b.cycleAnchor, next.weekStartsOn);
@@ -190,7 +189,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       // Anchor must sit on the (possibly new) week start day.
       next.cycleAnchor = P.weekStartFor(next.cycleAnchor || P.todayIn(next.timezone), next.weekStartsOn);
       const payroll = {
-        weekStartsOn: next.weekStartsOn, timezone: next.timezone, targets: next.targets, includeSuper: next.includeSuper,
+        weekStartsOn: next.weekStartsOn, timezone: next.timezone, targets: next.targets,
         cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays,
       };
       await tenantStore.updateSettings(req.tenantId, { payroll });
@@ -222,7 +221,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
         if (c.cycle && c.cycle.overtimePremium) rows.push([c.name, c.department || "", c.typeLabel, c.level, c.hourlyRate.toFixed(2), "", "", "", "", "", "", "", "", c.cycle.overtimeHoursThisWeek, c.cycle.overtimePremium.toFixed(2), "152h cycle overtime premium"]);
       }
       rows.push([]);
-      rows.push(["Totals", "", "", "", "", "", "", "", "", "", week.totals.hours, "", "", "", week.totals.projected.toFixed(2), `week ${week.weekStart} to ${week.weekEnd}; wages only${settings.includeSuper ? " + super" : ""}; super ${week.totals.super.toFixed(2)}`]);
+      rows.push(["Totals", "", "", "", "", "", "", "", "", "", week.totals.hours, "", "", "", week.totals.projected.toFixed(2), `week ${week.weekStart} to ${week.weekEnd}; wages only (super is an on-cost, not included)`]);
       for (const k of ["kitchen", "service", "total"]) {
         const d = week.departments[k];
         rows.push([k, "", "", "", "", "", "", "", "", "", d.hours, "", "", "", d.projected.toFixed(2), d.budget != null ? `budget ${d.budget.toFixed(2)} (${d.targetPct}% of ${week.totals.expectedRevenue}); ${d.pct}%` : "no revenue forecast"]);

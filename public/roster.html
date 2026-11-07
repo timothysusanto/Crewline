@@ -88,7 +88,6 @@
       <div class="dl"><span>Hours</span><span id="dHours">0.0</span></div>
       <div class="dl"><span>Hourly wages</span><span id="dWage">$0</span></div>
       <div class="dl" id="dSalRow" style="display:none"><span>Salaries <span class="muted">(÷52)</span></span><span id="dSal">$0</span></div>
-      <div class="dl"><span>Super 12%</span><span id="dSuper">$0</span></div>
       <div class="dl total"><span>Week</span><span id="dTotal">$0</span></div>
       <div class="dl" id="dPctRow"><span class="muted">of revenue forecast</span><span id="dPct" class="muted">—</span></div>
       <div class="hint" id="dHint">The Pay page has the budget, the actuals and the 152-hour cycle.</div>
@@ -131,7 +130,7 @@ function demoCost(s, w) {
   let mins = toMin(s.end) - toMin(s.start); if (mins <= 0) mins += 1440;
   const hrs = Math.max(0, mins - (s.unpaidBreakMins || 0)) / 60;
   const wage = hrs * DEMO_RATES[w.level] * mult[type][w.employmentType === "casual" ? "c" : "p"];
-  return { hours: r2(hrs), wageCost: r2(wage), superCost: r2(wage * .12), totalCost: r2(wage * 1.12) };
+  return { hours: r2(hrs), wageCost: r2(wage), totalCost: r2(wage) };
 }
 function seedDemo() {
   const s = []; let n = 0;
@@ -144,8 +143,8 @@ function seedDemo() {
 function demoRosterCost() {
   const byId = Object.fromEntries(workers.map((w) => [w.id, w]));
   const lines = shifts.map((s) => ({ ...demoCost(s, byId[s.workerId]), shiftId: s.id, date: s.date, workerId: s.workerId }));
-  const wage = r2(lines.reduce((t, l) => t + l.wageCost, 0)), sup = r2(wage * .12);
-  return { lines, totals: { hours: r2(lines.reduce((t, l) => t + l.hours, 0)), wage, super: sup, total: r2(wage + sup), salaries: 0, salariesSuper: 0 }, weeklyOTFlags: [], hasUnverifiedRates: true };
+  const wage = r2(lines.reduce((t, l) => t + l.wageCost, 0));
+  return { lines, totals: { hours: r2(lines.reduce((t, l) => t + l.hours, 0)), wage, total: r2(wage), salaries: 0 }, weeklyOTFlags: [], hasUnverifiedRates: true };
 }
 
 /* ---------- data ---------- */
@@ -202,18 +201,16 @@ function render() {
   renderDocket();
 }
 function renderDocket() {
-  const t = costing?.totals || { hours: 0, wage: 0, super: 0, total: 0, salaries: 0, salariesSuper: 0 };
+  const t = costing?.totals || { hours: 0, wage: 0, total: 0, salaries: 0 };
   const sal = t.salaries || 0;
   $("dHours").textContent = CL.hrs(t.hours); $("dWage").textContent = CL.money(t.wage);
   $("dSalRow").style.display = sal ? "" : "none"; $("dSal").textContent = CL.money(sal);
-  const sup = (t.super || 0) + (t.salariesSuper || 0);
-  $("dSuper").textContent = CL.money(sup);
-  $("dTotal").textContent = CL.money(t.wage + sal + sup);
+  $("dTotal").textContent = CL.money(t.wage + sal);
   if (payWeek && payWeek.totals.expectedRevenue > 0) {
     const pct = ((t.wage + sal) / payWeek.totals.expectedRevenue) * 100;
     const st = pct <= payWeek.settings.targets.totalPct ? "ok" : pct <= payWeek.settings.targets.totalPct + 3 ? "warn" : "over";
     $("dPct").innerHTML = `<span class="pill ${st}">${CL.pct(pct)} of ${CL.money(payWeek.totals.expectedRevenue)}</span>`;
-    $("dHint").textContent = `Budget is ${payWeek.settings.targets.totalPct}% (${CL.money(payWeek.totals.budget)}). Wages before super. The Pay page has actuals and the 152-hour cycle.`;
+    $("dHint").textContent = `Budget is ${payWeek.settings.targets.totalPct}% (${CL.money(payWeek.totals.budget)}). Wages only; super is an on-cost. The Pay page has actuals and the 152-hour cycle.`;
   } else { $("dPct").textContent = "—"; $("dHint").innerHTML = `Set a revenue forecast on the <a href="${CL.url("/pay")}">Pay page</a> to see this as a %.`; }
   if (costing?.hasUnverifiedRates && !DEMO) $("docketFlags").insertAdjacentHTML("beforeend", `<div class="flag info">Some award rates are 2026/27 estimates — check fairwork.gov.au before the first pay run.</div>`);
 }

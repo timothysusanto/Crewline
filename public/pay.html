@@ -156,7 +156,7 @@ function render() {
       <div class="stat"><div class="v">${CL.money(t.rostered)}</div><div class="l">Rostered</div></div>
       <div class="stat"><div class="v">${CL.money(t.worked)}</div><div class="l">Actual${pastDays ? ` · ${pastDays} day${pastDays === 1 ? "" : "s"}` : ""}</div></div>
     </div>
-    <div class="hint">${CL.hrs(t.hours)} this week${s.includeSuper ? " · super included" : ` · super ${CL.money(t.super)} on top`}${hasRev && t.forecastRevenue !== t.expectedRevenue ? " · using actual revenue where entered" : ""}</div>
+    <div class="hint">${CL.hrs(t.hours)} this week · wages only, super is an on-cost${hasRev && t.forecastRevenue !== t.expectedRevenue ? " · using actual revenue where entered" : ""}</div>
     ${hasRev ? `<div class="whatif">
       <div class="lbl"><span>What if revenue comes in…</span><b id="wiLbl">as forecast</b></div>
       <input type="range" id="wi" min="-30" max="30" step="5" value="0" aria-label="Revenue what-if">
@@ -330,7 +330,6 @@ async function settingsSheet() {
       </div>
       <div class="help">Service's own target is the difference. 22% and 55% means service has 33%.</div>
     </div>
-    <label class="field inline"><label for="st-super">Count super (12%) in payroll cost</label><span class="switch"><input id="st-super" type="checkbox" ${s.includeSuper ? "checked" : ""}><span></span></span></label>
     <div class="frow">
       <label class="field"><span class="lbl">Pay week starts</span><select id="st-wk">${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d, i) => `<option value="${i}" ${i === s.weekStartsOn ? "selected" : ""}>${d}</option>`).join("")}</select></label>
       <label class="field"><span class="lbl">Timezone</span><select id="st-tz">${data.timezones.map((z) => `<option value="${z}" ${z === s.timezone ? "selected" : ""}>${z.replace("Australia/", "").replace("Pacific/", "")}</option>`).join("")}</select></label>
@@ -344,7 +343,6 @@ async function settingsSheet() {
     try {
       await CL.api("/api/pay/settings", { method: "POST", body: {
         targets: { kitchenPct: Number(el.querySelector("#st-k").value), totalPct: Number(el.querySelector("#st-t").value) },
-        includeSuper: el.querySelector("#st-super").checked,
         weekStartsOn: Number(el.querySelector("#st-wk").value),
         timezone: el.querySelector("#st-tz").value,
         cycleAnchor: el.querySelector("#st-cycle").value || undefined,

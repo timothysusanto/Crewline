@@ -22,7 +22,7 @@ async function seedDemo({ staffStore, rosterStore, shiftsStore, tenantStore, sit
   ];
   for (const c of crew) await staffStore.upsert({ ...c, tenantId, active: true, telegramChatId: c.telegramChatId || (c.phone.endsWith("1") || c.phone.endsWith("2") || c.phone.endsWith("4") ? "9" + c.phone.slice(-3) : null) });
 
-  await tenantStore.updateSettings(tenantId, { payroll: { weekStartsOn: 1, timezone: tz, targets: { kitchenPct: 22, totalPct: 55 }, includeSuper: false, cycleAnchor: P.addDays(weekStart, -21), cycleWeeks: 4, publicHolidays: [] } });
+  await tenantStore.updateSettings(tenantId, { payroll: { weekStartsOn: 1, timezone: tz, targets: { kitchenPct: 22, totalPct: 55 }, cycleAnchor: P.addDays(weekStart, -21), cycleWeeks: 4, publicHolidays: [] } });
 
   // Roster: this week and the three before (for the 152h cycle).
   const plan = {

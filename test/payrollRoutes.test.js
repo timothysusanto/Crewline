@@ -46,11 +46,11 @@ test("POST revenue: weekTotal spreads, actuals override, settings change the bud
     assert.equal(r.json.totals.budget, Math.round((21000 - 500) * 0.55 * 100) / 100);
     const bad = await call(`/api/pay/week/${P.addDays(wk.weekStart, 1)}/revenue`, { method: "POST", body: { weekTotal: 1 } });
     assert.equal(bad.status, 400);
-    const s = await call("/api/pay/settings", { method: "POST", body: { targets: { kitchenPct: 25, totalPct: 50 }, includeSuper: true } });
+    const s = await call("/api/pay/settings", { method: "POST", body: { targets: { kitchenPct: 25, totalPct: 50 } } });
     assert.equal(s.status, 200);
     const after = (await call("/api/pay/week")).json;
     assert.equal(after.departments.service.targetPct, 25);
-    assert.ok(after.totals.projected > r.json.totals.projected, "super now counted");
+    assert.equal(after.totals.projected, r.json.totals.projected, "super is never in payroll");
     const rej = await call("/api/pay/settings", { method: "POST", body: { targets: { kitchenPct: 60, totalPct: 50 } } });
     assert.equal(rej.status, 400);
   } finally { close(); }

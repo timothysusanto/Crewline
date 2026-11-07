@@ -78,11 +78,10 @@ test("casual Saturday costs 1.5× the base under HIGA", () => {
   assert.equal(line.cost, line.wage);
 });
 
-test("above-award rate scales the whole shift, super follows", () => {
-  const line = P.costHourly({ date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 0 }, P.payProfile(foh), [], true);
+test("above-award rate scales the whole shift; payroll cost is the wage only, never super", () => {
+  const line = P.costHourly({ date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 0 }, P.payProfile(foh), []);
   assert.equal(line.wage, 240);          // 8h × $30 weekday permanent 1.0×
-  assert.equal(line.superCost, 28.8);
-  assert.equal(line.cost, 268.8);        // includeSuper
+  assert.equal(line.cost, 240);          // super (28.80) is an on-cost, not payroll
 });
 
 test("salaried staff: weekly cost spread over rostered days, accrues as days pass", () => {
@@ -92,7 +91,7 @@ test("salaried staff: weekly cost spread over rostered days, accrues as days pas
     { workerId: salaried.phone, date: "2026-11-04", start: "08:00", end: "16:00", unpaidBreakMins: 30 },
     { workerId: salaried.phone, date: "2026-11-06", start: "08:00", end: "16:00", unpaidBreakMins: 30 },
   ];
-  const w = P.personWeek(P.payProfile(salaried), rostered, [], { weekStart: WEEK, today: "2026-11-05", publicHolidays: [], includeSuper: false, cycle: null });
+  const w = P.personWeek(P.payProfile(salaried), rostered, [], { weekStart: WEEK, today: "2026-11-05", publicHolidays: [], cycle: null });
   assert.equal(w.rosteredCost, 1500);
   assert.equal(w.days[0].rosteredCost, 375);  // 1500 / 4 rostered days
   assert.equal(w.days[3].rosteredCost, 0);    // Thursday not rostered → nothing posted
@@ -104,7 +103,7 @@ test("salaried staff: weekly cost spread over rostered days, accrues as days pas
 });
 
 test("salaried with no roster yet spreads Mon–Fri", () => {
-  const w = P.personWeek(P.payProfile(salaried), [], [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [], includeSuper: false, cycle: null });
+  const w = P.personWeek(P.payProfile(salaried), [], [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [], cycle: null });
   assert.equal(w.days[0].rosteredCost, 300);
   assert.equal(w.days[5].rosteredCost, 0);
   assert.equal(w.rosteredCost, 1500);
@@ -116,7 +115,7 @@ test("hourly: actual replaces rostered for days that have happened", () => {
     { workerId: casual.phone, date: "2026-11-06", start: "10:00", end: "18:00", unpaidBreakMins: 0 },
   ];
   const worked = [P.attendanceToShift(clock(casual.phone, "2026-11-02T10:00", "2026-11-02T20:00"), TZ)]; // 10h worked
-  const w = P.personWeek(P.payProfile(casual), rostered, worked, { weekStart: WEEK, today: "2026-11-04", publicHolidays: [], includeSuper: false, cycle: null });
+  const w = P.personWeek(P.payProfile(casual), rostered, worked, { weekStart: WEEK, today: "2026-11-04", publicHolidays: [], cycle: null });
   assert.equal(w.days[0].projectedHours, 10);
   assert.equal(w.days[4].projectedHours, 8);
   assert.equal(w.projectedHours, 18);
@@ -128,7 +127,7 @@ test("152-hour cycle: overtime lands in the week the 152nd hour is passed", () =
   const p = P.payProfile(ftHourly);
   const rostered = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06"].map((date) =>
     ({ workerId: ftHourly.phone, date, start: "08:00", end: "17:00", unpaidBreakMins: 60 })); // 8h × 5 = 40h
-  const ctx = { weekStart: WEEK, today: "2026-11-02", publicHolidays: [], includeSuper: false,
+  const ctx = { weekStart: WEEK, today: "2026-11-02", publicHolidays: [],
     cycle: { start: "2026-10-12", end: "2026-11-08", weekIndex: 4, weeks: 4, limit: 152, hoursBefore: 118, rosteredAfter: 0 } };
   const w = P.personWeek(p, rostered, [], ctx);
   assert.equal(w.cycle.total, 158);
@@ -145,7 +144,7 @@ test("152-hour cycle: on track when the roster fits", () => {
   const p = P.payProfile(ftHourly);
   const rostered = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05"].map((date) =>
     ({ workerId: ftHourly.phone, date, start: "08:00", end: "17:00", unpaidBreakMins: 60 })); // 32h
-  const w = P.personWeek(p, rostered, [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [], includeSuper: false,
+  const w = P.personWeek(p, rostered, [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [],
     cycle: { start: "2026-10-12", end: "2026-11-08", weekIndex: 4, weeks: 4, limit: 152, hoursBefore: 114, rosteredAfter: 0 } });
   assert.equal(w.cycle.total, 146);
   assert.equal(w.cycle.status, "close");
@@ -156,7 +155,7 @@ test("152-hour cycle: on track when the roster fits", () => {
 test("salaried full-timer past 152h is flagged, not charged", () => {
   const rostered = ["2026-11-02", "2026-11-03", "2026-11-04", "2026-11-05", "2026-11-06", "2026-11-07"].map((date) =>
     ({ workerId: salaried.phone, date, start: "07:00", end: "18:00", unpaidBreakMins: 60 })); // 10h × 6 = 60h
-  const w = P.personWeek(P.payProfile(salaried), rostered, [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [], includeSuper: false,
+  const w = P.personWeek(P.payProfile(salaried), rostered, [], { weekStart: WEEK, today: "2026-11-02", publicHolidays: [],
     cycle: { start: "2026-10-12", end: "2026-11-08", weekIndex: 4, weeks: 4, limit: 152, hoursBefore: 100, rosteredAfter: 0 } });
   assert.equal(w.cycle.over, 8);
   assert.equal(w.projectedCost, 1500);

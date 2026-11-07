@@ -188,13 +188,11 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
         salaryWeekly += Number(w.annualSalary) > 0 ? Number(w.annualSalary) / 52 : 0;
       }
       if (salaried.size) {
-        for (const l of costing.lines) if (salaried.has(l.workerId)) { l.salary = true; l.wageCost = 0; l.superCost = 0; l.totalCost = 0; l.otCost = 0; }
+        for (const l of costing.lines) if (salaried.has(l.workerId)) { l.salary = true; l.wageCost = 0; l.totalCost = 0; l.otCost = 0; }
         costing.totals.wage = round2(costing.lines.reduce((t, l) => t + l.wageCost, 0));
-        costing.totals.super = round2(costing.lines.reduce((t, l) => t + l.superCost, 0));
-        costing.totals.total = round2(costing.totals.wage + costing.totals.super);
+        costing.totals.total = costing.totals.wage;
       }
       costing.totals.salaries = round2(salaryWeekly);
-      costing.totals.salariesSuper = round2(salaryWeekly * 0.12);
       res.json({ weekStart, weekEnd, shifts, costing, unverifiedRates: listUnverifiedRates() });
     } catch (e) { err(res, e); }
   });
@@ -489,7 +487,7 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       ]);
       const workersById = {};
       workerSnap.docs.forEach((d) => (workersById[d.id] = { id: d.id, ...d.data() }));
-      const rows = [["EmployeeName", "Date", "DayType", "Start", "End", "UnpaidBreakMins", "PaidHours", "OrdinaryHours", "OTHours", "Classification", "BaseRate", "Multiplier", "LoadingAmt", "WageCost", "Super", "TotalCost"]];
+      const rows = [["EmployeeName", "Date", "DayType", "Start", "End", "UnpaidBreakMins", "PaidHours", "OrdinaryHours", "OTHours", "Classification", "BaseRate", "Multiplier", "LoadingAmt", "WageCost"]];
       for (const d of shiftSnap.docs) {
         const s = d.data();
         const w = workersById[s.workerId];
@@ -499,7 +497,7 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
           w.name, s.date, c.dayType, s.start, s.end, s.unpaidBreakMins || 0,
           c.hours, c.ordinaryHours, c.otHours, `${w.awardCode || "MA000009"}/${w.level}`,
           c.baseRate, c.multiplier, c.loadings.reduce((t, l) => t + l.amount, 0).toFixed(2),
-          c.wageCost, c.superCost, c.totalCost,
+          c.wageCost,
         ]);
       }
       res.setHeader("Content-Type", "text/csv");
