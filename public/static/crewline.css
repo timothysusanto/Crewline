@@ -5,9 +5,9 @@
    ===================================================================== */
 
 :root {
-  --paper: #FFFFFF;
-  --docket: #FAF7F0;
-  --docket-2: #F2EDE3;
+  --paper: #F8F4EC;
+  --docket: #FFFDF9;
+  --docket-2: #F1ECE2;
   --ink: #1A1A1A;
   --ink-2: #6B655D;
   --ink-3: #9A948B;
@@ -29,33 +29,33 @@
   --tabbar-h: 58px;
   --sat: env(safe-area-inset-top, 0px);
   --sab: env(safe-area-inset-bottom, 0px);
-  color-scheme: light dark;
+  color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #14171B;
-    --docket: #1D2126;
-    --docket-2: #242930;
-    --ink: #F3EFE8;
-    --ink-2: #ABA49A;
-    --ink-3: #7E786F;
-    --steel: #B7C3CE;
-    --steel-2: #8C9AA8;
-    --line: #2F363E;
-    --line-2: #272D34;
-    --ember-soft: #3A1F15;
-    --green: #7FD39A; --green-bg: #15291C;
-    --amber: #F0B269; --amber-bg: #33230F;
-    --red: #F08A80;   --red-bg: #3A1A18;
-    --blue: #8FB6E0;  --blue-bg: #17283A;
-    --shadow: 0 10px 30px -18px rgba(0, 0, 0, .8);
-  }
+/* Light paper is the look. Dark is opt-in (More → Venue → Dark mode), never automatic. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #14171B;
+  --docket: #1D2126;
+  --docket-2: #242930;
+  --ink: #F3EFE8;
+  --ink-2: #ABA49A;
+  --ink-3: #7E786F;
+  --steel: #B7C3CE;
+  --steel-2: #8C9AA8;
+  --line: #2F363E;
+  --line-2: #272D34;
+  --ember-soft: #3A1F15;
+  --green: #7FD39A; --green-bg: #15291C;
+  --amber: #F0B269; --amber-bg: #33230F;
+  --red: #F08A80;   --red-bg: #3A1A18;
+  --blue: #8FB6E0;  --blue-bg: #17283A;
+  --shadow: 0 10px 30px -18px rgba(0, 0, 0, .8);
 }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0; background: var(--paper); color: var(--ink);
+  margin: 0; background: var(--paper) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .45 0 0 0 0 .38 0 0 0 0 .28 0 0 0 .05 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E"); color: var(--ink);
   font-family: var(--font-ui); font-size: 16px; line-height: 1.4;
   -webkit-font-smoothing: antialiased; overscroll-behavior-y: contain;
   padding-bottom: calc(var(--tabbar-h) + var(--sab) + 16px);
@@ -92,7 +92,9 @@ input, select, textarea { font: inherit; color: inherit; }
 .card + .card { margin-top: 10px; }
 .card.pad0 { padding: 0; overflow: hidden; }
 .card .clip { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); width: 26px; height: 12px; border-radius: 3px; background: var(--steel); opacity: .9; }
-.card.tear { border-bottom-style: dashed; }
+.card.tear { border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; margin-bottom: 8px; }
+.card.tear::after { content: ""; position: absolute; left: -1px; right: -1px; bottom: -7px; height: 7px; pointer-events: none;
+  background: radial-gradient(circle at 7px 0, var(--docket) 7px, transparent 7.5px) 0 0 / 14px 7px repeat-x; filter: drop-shadow(0 1px 0 var(--line)); }
 .hint { font-size: 13px; color: var(--ink-2); margin-top: 8px; }
 .muted { color: var(--ink-2); }
 .mono { font-family: var(--font-docket); }

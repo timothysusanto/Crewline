@@ -6,8 +6,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Crewline">
-<meta name="theme-color" content="#FAF7F0" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#14171B" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F8F4EC">
 <title>More — Crewline</title>
 <link rel="stylesheet" href="/static/crewline.css">
 <style>
@@ -233,7 +232,9 @@ function renderVenue() {
     <div class="kv"><span>Venue</span><b>${E(me ? me.name : "—")} <button class="btn sm" id="renameBtn" type="button" style="margin-left:8px">Rename</button></b></div>
     <div class="kv"><span>Staff included</span><b>${me ? me.staffLimit : "—"}</b></div>
     <div class="kv"><span>Linked on Telegram</span><b>${dash ? dash.staff.filter((s) => s.telegramChatId).length : 0} of ${dash ? dash.staff.length : 0}</b></div>
-    <div class="kv"><span>Bot</span><b>@CrewLine_SuperApps_bot</b></div>`;
+    <div class="kv"><span>Bot</span><b>@CrewLine_SuperApps_bot</b></div>
+    <div class="kv"><span>Dark mode</span><b><button class="btn sm" id="darkBtn" type="button">${document.documentElement.getAttribute("data-theme") === "dark" ? "On" : "Off"}</button></b></div>`;
+  $("darkBtn").onclick = () => { $("darkBtn").textContent = CL.toggleDark() ? "On" : "Off"; };
   $("renameBtn").onclick = () => {
     const el = CL.makeSheet({ id: "rename-sheet", title: "Rename venue", body: `<label class="field"><span class="lbl">Venue name (what the bot and the pages call it)</span><input id="rn-name" type="text" value="${E(me ? me.name : "")}" autocapitalize="words"></label><p class="err" id="rn-err"></p>`, foot: `<button class="btn primary" id="rn-save" type="button">Save</button>` });
     const sh = CL.sheet("rename-sheet"); sh.open();

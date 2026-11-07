@@ -12,8 +12,11 @@
     if (key) localStorage.setItem(KEY_NAME, key);
   } catch { /* private mode: the key lives in the URL only */ }
 
+  try { if (localStorage.getItem("crewline_theme") === "dark") document.documentElement.setAttribute("data-theme", "dark"); } catch {}
+
   const CL = {
     key: () => key,
+    toggleDark() { const on = document.documentElement.getAttribute("data-theme") !== "dark"; if (on) document.documentElement.setAttribute("data-theme", "dark"); else document.documentElement.removeAttribute("data-theme"); try { localStorage.setItem("crewline_theme", on ? "dark" : "light"); } catch {} return on; },
     setKey(k) { key = k; try { localStorage.setItem(KEY_NAME, k); } catch {} },
     venue: null,
 
