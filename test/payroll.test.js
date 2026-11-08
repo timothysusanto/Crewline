@@ -273,3 +273,18 @@ test("part-time on unpaid leave gets no contract-hours flag", () => {
   assert.equal(has(mk(false)), true);
   assert.equal(has(mk(true)), false);
 });
+
+test("Miss Mi team: shifts on closed days are not costed", () => {
+  const { buildWeek } = require("../payroll");
+  const w = { id: "1", name: "Aamidh M", employmentType: "casual", payType: "hourly", level: "L2", department: "kitchen", team: "missmi" };
+  const shifts = ["2026-12-21", "2026-12-22", "2026-12-26"].map((date) => ({ workerId: "1", date, start: "15:00", end: "22:30", unpaidBreakMins: 30 }));
+  const settings = { closures: { missmi: { weekdays: [0, 1], dates: ["2026-12-21", "2026-12-22", "2026-12-23", "2026-12-24", "2026-12-25", "2026-12-26", "2026-12-27"], publicHolidays: true } } };
+  const open = buildWeek({ weekStart: "2026-12-21", workers: [w], rosterShifts: shifts, settings: {} });
+  const closed = buildWeek({ weekStart: "2026-12-21", workers: [w], rosterShifts: shifts, settings });
+  assert.ok(open.totals.projected > 0);
+  assert.equal(closed.totals.projected, 0);
+  assert.match(JSON.stringify(closed), /not costed/);
+  // closed on Mondays only: Tue shift still costs
+  const mon = buildWeek({ weekStart: "2026-11-09", workers: [w], rosterShifts: [{ workerId: "1", date: "2026-11-09", start: "15:00", end: "22:30", unpaidBreakMins: 30 }, { workerId: "1", date: "2026-11-10", start: "15:00", end: "22:30", unpaidBreakMins: 30 }], settings: { closures: { missmi: { weekdays: [0, 1] } } } });
+  assert.equal(mon.crew ? mon.crew[0].shiftsRostered : 1, 1);
+});

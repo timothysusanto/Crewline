@@ -51,6 +51,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     const s = { ...P.DEFAULT_SETTINGS, ...(tenant.payroll || {}) };
     s.targets = { ...P.DEFAULT_SETTINGS.targets, ...((tenant.payroll || {}).targets || {}) };
     s.oncost = { ...P.DEFAULT_SETTINGS.oncost, ...((tenant.payroll || {}).oncost || {}) };
+    s.closures = s.closures && typeof s.closures === "object" ? s.closures : {};
     s.publicHolidays = Array.isArray(s.publicHolidays) ? s.publicHolidays : [];
     // Legacy: public holidays entered on the old cost-settings panel.
     if (!s.publicHolidays.length && tenant.penaltyRules && Array.isArray(tenant.penaltyRules.publicHolidays)) {
@@ -192,11 +193,23 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       if (Array.isArray(b.publicHolidays)) {
         next.publicHolidays = [...new Set(b.publicHolidays.map(String).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().slice(0, 60);
       }
+      if (b.closures && typeof b.closures === "object") {
+        const out = {};
+        for (const [team, c] of Object.entries(b.closures).slice(0, 6)) {
+          if (!/^[a-z]{2,12}$/.test(team) || !c) continue;
+          out[team] = {
+            weekdays: [...new Set((c.weekdays || []).map(Number).filter((n) => n >= 0 && n <= 6))],
+            dates: [...new Set((c.dates || []).map(String).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().slice(0, 120),
+            publicHolidays: Boolean(c.publicHolidays),
+          };
+        }
+        next.closures = out;
+      }
       // Anchor must sit on the (possibly new) week start day.
       next.cycleAnchor = P.weekStartFor(next.cycleAnchor || P.todayIn(next.timezone), next.weekStartsOn);
       const payroll = {
         weekStartsOn: next.weekStartsOn, timezone: next.timezone, targets: next.targets,
-        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays, oncost: next.oncost,
+        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays, oncost: next.oncost, closures: next.closures || {},
       };
       await tenantStore.updateSettings(req.tenantId, { payroll });
       // The roster page's award costing reads public holidays from here.

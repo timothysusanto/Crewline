@@ -40,7 +40,18 @@ const DEFAULT_SETTINGS = Object.freeze({
   // Line items always stay wages-only. When `include` is on, the budget % compares
   // payroll *in on-cost* — the way hotel finance reports it (casual vs permanent rates).
   oncost: Object.freeze({ include: false, casualPct: 22.17, permanentPct: 31.21 }),
+  // Outlet closures by team, e.g. { missmi: { weekdays: [0, 1], dates: ["2026-12-21", …], publicHolidays: true } }.
+  // Weekdays are 0 Sun … 6 Sat. Hourly shifts rostered on a closed day are not costed.
+  closures: Object.freeze({}),
 });
+
+function isClosed(closures, team, date, publicHolidays) {
+  const c = team && closures && closures[team];
+  if (!c) return false;
+  if ((c.dates || []).includes(date)) return true;
+  if ((c.weekdays || []).includes(dayOfWeek(date))) return true;
+  return Boolean(c.publicHolidays) && (publicHolidays || []).includes(date);
+}
 
 const DEPARTMENTS = ["kitchen", "service"];
 const CYCLE_HOURS_PER_WEEK = 38;
@@ -149,6 +160,7 @@ function payProfile(worker) {
     contractHours: employmentType === "parttime" && Number(worker.contractHours) > 0 ? Number(worker.contractHours) : null,
     jobTitle: worker.jobTitle || null,
     onLeave: worker.onLeave === true,
+    team: worker.team || null,
   };
 }
 
@@ -226,10 +238,16 @@ function salaryDays(weekStart, rosteredDates) {
 function personWeek(p, rostered, worked, ctx) {
   const { weekStart, today, publicHolidays } = ctx;
   const dates = weekDates(weekStart);
+  const closedFlags = [];
+  if (ctx.closures && p.team && p.payType !== "salary") {
+    const keep = rostered.filter((s) => !isClosed(ctx.closures, p.team, s.date, publicHolidays));
+    if (keep.length < rostered.length) closedFlags.push({ level: "info", code: "closed", text: `${p.name}: ${rostered.length - keep.length} shift(s) fall on days ${p.team === "missmi" ? "Miss Mi is" : "the outlet is"} closed — not costed. Take them off the roster.` });
+    rostered = keep;
+  }
   const byDate = {};
   for (const d of dates) byDate[d] = { date: d, rosteredHours: 0, rosteredCost: 0, workedHours: 0, workedCost: 0, actualCost: 0, lines: [] };
 
-  const flags = [];
+  const flags = [...closedFlags];
   let rosteredHours = 0, rosteredCost = 0, workedHours = 0, workedCost = 0;
 
   if (p.payType === "salary") {
@@ -344,7 +362,7 @@ function statusFor(pct, target) {
  */
 function buildWeek(input) {
   const settings = { ...DEFAULT_SETTINGS, ...(input.settings || {}), targets: { ...DEFAULT_SETTINGS.targets, ...((input.settings || {}).targets || {}) },
-    oncost: { ...DEFAULT_SETTINGS.oncost, ...((input.settings || {}).oncost || {}) } };
+    oncost: { ...DEFAULT_SETTINGS.oncost, ...((input.settings || {}).oncost || {}) }, closures: (input.settings || {}).closures || {} };
   const oc = settings.oncost;
   const loadFor = (c) => (oc.include ? 1 + (c.employmentType === "casual" ? Number(oc.casualPct) || 0 : Number(oc.permanentPct) || 0) / 100 : 1);
   const weekStart = input.weekStart;
@@ -369,7 +387,7 @@ function buildWeek(input) {
   const crew = profiles.map((p) => {
     const ch = (input.cycleHours || {})[p.id] || { before: 0, after: 0 };
     return personWeek(p, byWorkerRoster[p.id] || [], byWorkerWorked[p.id] || [], {
-      weekStart, today, publicHolidays,
+      weekStart, today, publicHolidays, closures: settings.closures,
       cycle: p.employmentType === "fulltime" ? { ...cycle, limit: cycle.hours, hoursBefore: ch.before, rosteredAfter: ch.after } : null,
     });
   }).sort((a, b) => (a.department || "zz").localeCompare(b.department || "zz") || b.projectedCost - a.projectedCost);
@@ -505,7 +523,7 @@ function round2(n) { return Math.round(n * 100) / 100; }
 function round1(n) { return Math.round(n * 10) / 10; }
 
 module.exports = {
-  DEFAULT_SETTINGS, DEPARTMENTS, CYCLE_HOURS_PER_WEEK,
+  DEFAULT_SETTINGS, isClosed, DEPARTMENTS, CYCLE_HOURS_PER_WEEK,
   addDays, weekStartFor, weekDates, todayIn, localDateTime, cycleFor,
   normalizeDepartment, payProfile, attendanceToShift, effectiveTimes, rosterShiftHours,
   costHourly, personWeek, buildWeek, cycleHoursOutsideWeek, suggestForecast, spreadWeekTotal,
