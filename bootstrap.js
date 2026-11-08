@@ -43,6 +43,17 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
   if (cfg.payroll) patch.payroll = { ...(tenant && tenant.payroll), ...cfg.payroll,
     ...(cfg.payroll.publicHolidays ? { publicHolidays: [...new Set([...((tenant && tenant.payroll && tenant.payroll.publicHolidays) || []), ...cfg.payroll.publicHolidays])].sort() } : {}) };
 
+  // 1b. Merge duplicates: move every shift from one record onto another, then retire the duplicate.
+  for (const m of cfg.merge || []) {
+    const all = await staffStore.listByTenant(tenantId);
+    const from = all.find((s) => s.name === m.from && s.active !== false), into = all.find((s) => s.name === m.into && s.active !== false);
+    if (!from || !into || from.phone === into.phone) { log.log(`[bootstrap] merge skipped: ${m.from} -> ${m.into}`); continue; }
+    const shifts = await rosterStore.listByWorker(tenantId, String(from.phone), "2000-01-01", "2100-12-31");
+    for (const s of shifts) await rosterStore.update(tenantId, s.id, { workerId: String(into.phone) });
+    await staffStore.upsert({ ...from, active: false, mergedInto: String(into.phone) });
+    log.log(`[bootstrap] merged ${m.from} into ${m.into}: ${shifts.length} shift(s) moved, duplicate retired`);
+  }
+
   // 2. Crew. Match people already on the list before adding anyone.
   const existing = (await staffStore.listByTenant(tenantId)).filter((s) => s.active !== false);
   if (cfg.listCrew) {

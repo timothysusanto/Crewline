@@ -86,3 +86,16 @@ test("a second config: `set` updates existing crew, settings merge, forecasts fi
   assert.equal(t.payroll.oncost.include, true);
   assert.deepEqual(t.payroll.publicHolidays, ["2026-12-25"]);
 });
+
+test("merge moves shifts onto the real record and retires the duplicate", async () => {
+  const st = buildStores({});
+  await st.staffStore.upsert({ phone: "61400000001", tenantId: "t1", name: "Timothy", role: "manager", active: true });
+  await st.staffStore.upsert({ phone: "pending-timoty", tenantId: "t1", name: "Timoty Susanto", role: "staff", active: true });
+  await st.rosterStore.addShift({ tenantId: "t1", workerId: "pending-timoty", date: "2026-11-03", start: "12:00", end: "20:06" });
+  const lines = []; const log = { log: (m) => lines.push(m), error() {}, warn() {} };
+  await runBootstrap(st, "t1", JSON.stringify({ id: "m1", merge: [{ from: "Timoty Susanto", into: "Timothy" }] }), log, {});
+  const moved = await st.rosterStore.listByWorker("t1", "61400000001", "2026-11-01", "2026-11-30");
+  assert.equal(moved.length, 1);
+  const dup = (await st.staffStore.listByTenant("t1")).find((s) => s.name === "Timoty Susanto");
+  assert.equal(dup.active, false);
+});
