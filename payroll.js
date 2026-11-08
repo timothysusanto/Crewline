@@ -148,6 +148,7 @@ function payProfile(worker) {
     typeLabel: payType === "salary" ? "Salaried" : ET_LABEL[employmentType],
     contractHours: employmentType === "parttime" && Number(worker.contractHours) > 0 ? Number(worker.contractHours) : null,
     jobTitle: worker.jobTitle || null,
+    onLeave: worker.onLeave === true,
   };
 }
 
@@ -303,7 +304,7 @@ function personWeek(p, rostered, worked, ctx) {
       }
     }
   }
-  if (p.contractHours != null && Math.abs(rosteredHours - p.contractHours) >= 0.5) {
+  if (p.contractHours != null && !p.onLeave && Math.abs(rosteredHours - p.contractHours) >= 0.5) {
     const h = round2(rosteredHours);
     flags.push(h < p.contractHours
       ? { level: "warn", code: "contract", text: `${p.name} is part-time on ${p.contractHours}h a week but rostered ${h}h. Agreed hours still have to be offered (or paid).` }

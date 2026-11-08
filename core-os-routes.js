@@ -568,6 +568,7 @@ function payFields(body, merged) {
     if (body.contractHours === null || body.contractHours === "") patch.contractHours = null;
     else { const n = Number(body.contractHours); if (!(n > 0 && n <= 38)) return { error: "contractHours must be 1–38 a week" }; patch.contractHours = Math.round(n * 10) / 10; }
   }
+  if (body.onLeave !== undefined) patch.onLeave = body.onLeave === true || body.onLeave === "true";
   if (body.jobTitle !== undefined) patch.jobTitle = String(body.jobTitle || "").trim().slice(0, 40) || null;
   if (body.avatar !== undefined) {
     // Which illustrated face (0–7); null = automatic. Telegram photo always wins when there is one.

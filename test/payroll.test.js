@@ -265,3 +265,11 @@ test("part-time contract hours: warns below and above the agreed hours", () => {
     rosterShifts: [{ workerId: pt.phone, date: "2026-11-03", start: "09:00", end: "17:00", unpaidBreakMins: 30 }], settings: { timezone: TZ } });
   assert.match(over.flags.find((f) => f.code === "contract").text, /overtime unless/);
 });
+
+test("part-time on unpaid leave gets no contract-hours flag", () => {
+  const { buildWeek } = require("../payroll");
+  const mk = (onLeave) => buildWeek({ weekStart: "2026-11-09", workers: [{ id: "1", name: "Jenna G", employmentType: "parttime", payType: "hourly", level: "L2", department: "kitchen", contractHours: 8, onLeave }], shifts: [], settings: {} });
+  const has = (w) => JSON.stringify(w).includes('"code":"contract"');
+  assert.equal(has(mk(false)), true);
+  assert.equal(has(mk(true)), false);
+});

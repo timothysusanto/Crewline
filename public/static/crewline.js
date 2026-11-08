@@ -218,7 +218,7 @@
             <label class="field"><span class="lbl">Award level</span><select id="cw-level"></select></label>
             <label class="field" id="cw-rate-wrap"><span class="lbl">Hourly rate $</span><input id="cw-rate" type="number" inputmode="decimal" step="0.01" min="0" placeholder="award"><div class="help" id="cw-rate-help"></div></label>
           </div>
-          <label class="field" id="cw-contract-wrap" style="display:none"><span class="lbl">Contracted hours a week (part-time)</span><input id="cw-contract" type="number" inputmode="decimal" step="0.5" min="1" max="38" placeholder="e.g. 30" value="${w.contractHours || ""}"><div class="help">Crewline warns when the roster gives them fewer or more hours than this.</div></label>
+          <label class="field" id="cw-contract-wrap" style="display:none"><span class="lbl">Contracted hours a week (part-time)</span><input id="cw-contract" type="number" inputmode="decimal" step="0.5" min="1" max="38" placeholder="e.g. 30" value="${w.contractHours || ""}"><div class="help">Crewline warns when the roster gives them fewer or more hours than this.</div><label style="display:flex;gap:8px;align-items:center;margin-top:8px"><input id="cw-leave" type="checkbox" ${w.onLeave ? "checked" : ""}> On unpaid leave (no hours warning)</label></label>
           <label class="field" id="cw-salary-wrap" style="display:none"><span class="lbl">Annual salary $ (before super)</span><input id="cw-salary" type="number" inputmode="numeric" step="100" min="0" placeholder="e.g. 78000" value="${w.annualSalary || ""}"><div class="help" id="cw-salary-help">Costed at salary ÷ 52 each week, spread over the days rostered.</div></label>
           <div class="field"><span class="lbl">Picture</span>
             <div class="faces" id="cw-faces"><button type="button" data-v="" class="auto">Auto</button>${CL.faces.map((f, i) => `<button type="button" data-v="${i}"><img src="${f}" alt="Face ${i + 1}"></button>`).join("")}</div>
@@ -270,6 +270,7 @@
           hourlyRate: k === "salary" ? null : ($("cw-rate").value === "" ? null : Number($("cw-rate").value)),
           avatar: segGet("cw-faces") === "" || segGet("cw-faces") == null ? null : Number(segGet("cw-faces")),
           contractHours: k === "parttime" && $("cw-contract").value !== "" ? Number($("cw-contract").value) : null,
+          onLeave: k === "parttime" && $("cw-leave") ? $("cw-leave").checked : false,
           annualSalary: k === "salary" ? ($("cw-salary").value === "" ? null : Number($("cw-salary").value)) : null,
         };
         if (!body.name || (!body.phone && !pending)) { $("cw-err").textContent = "Name and mobile are both needed."; return; }
