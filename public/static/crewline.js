@@ -204,8 +204,8 @@
           <label class="field"><span class="lbl">Name</span><input id="cw-name" type="text" value="${CL.esc(w.name || "")}" autocapitalize="words"></label>
           <label class="field"><span class="lbl">Job title (optional)</span><input id="cw-title" type="text" value="${CL.esc(w.jobTitle || "")}" placeholder="e.g. Sous Chef, CDP, Kitchen Steward" maxlength="40"></label>
           <label class="field"><span class="lbl">Mobile (the number they use on Telegram)</span>
-            <input id="cw-phone" type="tel" inputmode="tel" placeholder="0412 345 678" value="${pending ? "" : CL.esc(w.phone || w.id || "")}" ${worker && !pending ? "readonly" : ""}>
-            ${pending ? '<div class="help">Listed without a number. Add their mobile and they can link on Telegram — their shifts move with them.</div>' : worker ? '<div class="help">The number is the record — add a new person to change it.</div>' : '<div class="help">0412 345 678 is fine.</div>'}
+            <input id="cw-phone" type="tel" inputmode="tel" placeholder="0412 345 678" value="${pending ? "" : CL.esc(w.phone || w.id || "")}">
+            ${pending ? '<div class="help">Listed without a number. Add their mobile and they can link on Telegram — their shifts move with them.</div>' : worker ? '<div class="help">Change it and their shifts, clock-ins and certificates move with them. Linked on Telegram? They just share the new number.</div>' : '<div class="help">0412 345 678 is fine.</div>'}
           </label>
           <div class="field"><span class="lbl">Department</span>
             <div class="seg" id="cw-dept"><button type="button" data-v="kitchen">Kitchen</button><button type="button" data-v="service">Service</button></div>
@@ -281,7 +281,8 @@
         try {
           if (worker) {
             let id = w.id || w.phone;
-            if (pending && body.phone) { const m = await CL.api(`/api/core/workers/${encodeURIComponent(id)}/mobile`, { method: "POST", body: { phone: body.phone } }); id = m.id; }
+            const cur = String(id || "").replace(/\D/g, ""), typed = body.phone, typedIntl = /^0\d{9}$/.test(typed) ? "61" + typed.slice(1) : typed;
+            if (typed && (pending || (typedIntl !== cur && typed !== cur))) { const m = await CL.api(`/api/core/workers/${encodeURIComponent(id)}/mobile`, { method: "POST", body: { phone: typed } }); id = m.id; }
             delete body.phone;
             await CL.api(`/api/core/workers/${encodeURIComponent(id)}`, { method: "PUT", body });
           }

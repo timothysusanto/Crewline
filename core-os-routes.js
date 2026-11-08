@@ -274,11 +274,22 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       const taken = await staffCol.doc(phone).get();
       if (taken.exists) return res.status(409).json({ error: taken.data().tenantId === req.tenantId ? "Someone on your crew already has that number." : "That number is already registered at another venue." });
       const { pendingMobile, ...data } = cur.data();
-      await staffCol.doc(phone).set({ ...data, tenantId: req.tenantId, updatedAt: now() });
-      const sh = await T(req).collection("shifts").where("workerId", "==", oldId).get();
-      await Promise.all(sh.docs.map((d) => d.ref.update({ workerId: phone })));
+      await staffCol.doc(phone).set({ ...data, phone, tenantId: req.tenantId, updatedAt: now() });
+      // Everything keyed by the old id follows the person: roster shifts, clock records, certificates.
+      const [sh, clock, credA, credB] = await Promise.all([
+        T(req).collection("shifts").where("workerId", "==", oldId).get(),
+        db.collection("shifts").where("tenantId", "==", req.tenantId).where("staffPhone", "==", oldId).get(),
+        T(req).collection("credentials").where("workerId", "==", oldId).get(),
+        T(req).collection("credentials").where("workerPhone", "==", oldId).get(),
+      ]);
+      await Promise.all([
+        ...sh.docs.map((d) => d.ref.update({ workerId: phone })),
+        ...clock.docs.map((d) => d.ref.update({ staffPhone: phone })),
+        ...credA.docs.map((d) => d.ref.update({ workerId: phone })),
+        ...credB.docs.map((d) => d.ref.update({ workerPhone: phone })),
+      ]);
       await staffCol.doc(oldId).delete();
-      res.json({ ok: true, id: phone, shiftsMoved: sh.docs.length });
+      res.json({ ok: true, id: phone, shiftsMoved: sh.docs.length, clockMoved: clock.docs.length });
     } catch (e) { err(res, e); }
   });
 
