@@ -288,3 +288,13 @@ test("Miss Mi team: shifts on closed days are not costed", () => {
   const mon = buildWeek({ weekStart: "2026-11-09", workers: [w], rosterShifts: [{ workerId: "1", date: "2026-11-09", start: "15:00", end: "22:30", unpaidBreakMins: 30 }, { workerId: "1", date: "2026-11-10", start: "15:00", end: "22:30", unpaidBreakMins: 30 }], settings: { closures: { missmi: { weekdays: [0, 1] } } } });
   assert.equal(mon.crew ? mon.crew[0].shiftsRostered : 1, 1);
 });
+
+test("no clock-ins at all this week: past days keep their rostered cost", () => {
+  const { buildWeek } = require("../payroll");
+  const w = { id: "1", name: "Rita M", employmentType: "casual", payType: "hourly", level: "L1", department: "kitchen" };
+  const shifts = [{ workerId: "1", date: "2026-11-02", start: "07:00", end: "12:00", unpaidBreakMins: 0 }];
+  const wk = buildWeek({ weekStart: "2026-11-02", today: "2026-11-09", workers: [w], rosterShifts: shifts, settings: {} });
+  assert.equal(wk.totals.hours, 5);
+  assert.ok(wk.totals.projected > 0);
+  assert.ok(wk.flags.some((f) => f.code === "noclock"));
+});

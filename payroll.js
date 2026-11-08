@@ -286,7 +286,9 @@ function personWeek(p, rostered, worked, ctx) {
   let projectedCost = 0, projectedHours = 0;
   for (const d of dates) {
     const row = byDate[d];
-    const useWorked = p.payType === "salary" ? d < today : (d < today || row.workedHours > 0);
+    // Venues not clocking in yet: a past day with no clock record keeps its rostered cost
+    // (the roster stands in for the timesheet) instead of dropping to $0.
+    const useWorked = p.payType === "salary" ? d < today : (row.workedHours > 0 || (d < today && !ctx.rosterAsActual));
     row.projectedCost = useWorked ? round2(row.actualCost) : round2(row.rosteredCost);
     row.projectedHours = useWorked ? round2(row.workedHours) : round2(row.rosteredHours);
     projectedCost += row.projectedCost; projectedHours += row.projectedHours;
@@ -384,10 +386,12 @@ function buildWeek(input) {
     (byWorkerWorked[s.workerId] = byWorkerWorked[s.workerId] || []).push(s);
   }
 
+  // No clock records at all this week → the venue isn't clocking in (yet): cost past days from the roster.
+  const rosterAsActual = !Object.keys(byWorkerWorked).length;
   const crew = profiles.map((p) => {
     const ch = (input.cycleHours || {})[p.id] || { before: 0, after: 0 };
     return personWeek(p, byWorkerRoster[p.id] || [], byWorkerWorked[p.id] || [], {
-      weekStart, today, publicHolidays, closures: settings.closures,
+      weekStart, today, publicHolidays, closures: settings.closures, rosterAsActual,
       cycle: p.employmentType === "fulltime" ? { ...cycle, limit: cycle.hours, hoursBefore: ch.before, rosteredAfter: ch.after } : null,
     });
   }).sort((a, b) => (a.department || "zz").localeCompare(b.department || "zz") || b.projectedCost - a.projectedCost);
@@ -440,6 +444,7 @@ function buildWeek(input) {
   if (expectedRevenue == null) flags.unshift({ level: "info", code: "forecast", text: "Enter a revenue forecast to see payroll as a % of revenue." });
   if (other.length) flags.push({ level: "info", text: `${other.map((c) => c.name).join(", ")}: no department set — counted in the total only.` });
   const unverified = crew.some((c) => !c.aboveAward && getAward("MA000009").levels[c.level] && !getAward("MA000009").levels[c.level].verified);
+  if (rosterAsActual && dates[0] < today && crew.some((c) => c.payType !== "salary" && c.shiftsRostered)) flags.push({ level: "info", code: "noclock", text: "No clock-ins this week: days already past are costed from the roster." });
   if (unverified) flags.push({ level: "info", text: "Some award rates are 2026/27 estimates — check fairwork.gov.au before the first pay run." });
 
   return {

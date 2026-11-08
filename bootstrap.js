@@ -74,7 +74,7 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
   const shifts = [];
   for (const s of cfg.shifts || []) {
     const workerId = idFor.get(s.name);
-    if (workerId) shifts.push({ workerId, date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0 });
+    if (workerId) shifts.push({ workerId, date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, published: s.published === true });
   }
   const sh = await commitShifts({ rosterStore, tenantId, shifts, actor: "setup" });
 

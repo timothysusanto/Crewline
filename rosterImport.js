@@ -331,7 +331,7 @@ async function commitShifts({ rosterStore, tenantId, shifts, actor = "import" })
     have.add(key(s));
     await rosterStore.addShift({
       tenantId, workerId: s.workerId, date: s.date, start: s.start, end: s.end,
-      unpaidBreakMins: s.unpaidBreakMins || 0, role: s.role || null, published: false,
+      unpaidBreakMins: s.unpaidBreakMins || 0, role: s.role || null, published: s.published === true,
       createdAt: at, updatedAt: at, audit: [{ at, action: "imported", by: actor, guardWarnings: [] }],
     });
     added++;
