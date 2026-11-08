@@ -1,0 +1,46 @@
+{%- comment -%} Homepage spotlight for Crewline (payroll-first, Nov 2026). One slot, sits after the KF Home section. Links to /pages/crewline. {%- endcomment -%}
+{%- assign pro_price = '$29' -%}
+{%- for v in all_products['kitchenfounder-membership'].variants -%}
+  {%- if v.title contains 'Pro' -%}{%- assign pro_price = v.price | money_without_trailing_zeros -%}{%- endif -%}
+{%- endfor -%}
+<style>
+.kf2 .cpromo{ padding:64px 0; }
+.kf2 .cpromo .grid2{ align-items:center; gap:48px; }
+.kf2 .cpromo .tag{ display:inline-block; font-size:13px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--kf-ember); margin-bottom:12px; }
+.kf2 .cpromo .card{ box-sizing:border-box; min-width:0; justify-self:end; width:100%; max-width:400px; background:#FFFDF9; color:var(--kf-ink); border-radius:16px; padding:18px 18px 16px; box-shadow:0 24px 50px -30px rgba(0,0,0,.7); font-size:14px; }
+@media(max-width:860px){ .kf2 .cpromo .card{ justify-self:start; } }
+.kf2 .cpromo .card .h{ display:flex; justify-content:space-between; font-size:11.5px; font-weight:800; letter-spacing:.06em; color:var(--kf-steel); margin-bottom:10px; }
+.kf2 .cpromo .card .big{ font-size:34px; font-weight:800; letter-spacing:-.02em; line-height:1; }
+.kf2 .cpromo .card .big small{ font-size:14px; color:var(--kf-steel); font-weight:600; }
+.kf2 .cpromo .card .pill{ font-size:12px; font-weight:700; padding:3px 9px; border-radius:12px; background:#E3F5EC; color:var(--kf-ledger); }
+.kf2 .cpromo .card .pill.bad{ background:#FDE3DA; color:var(--kf-ember-deep); }
+.kf2 .cpromo .card .r{ display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.kf2 .cpromo .card .days{ display:grid; grid-template-columns:repeat(7,1fr); gap:6px; align-items:end; height:70px; margin:14px 0 8px; }
+.kf2 .cpromo .card .days div{ display:flex; flex-direction:column; justify-content:flex-end; align-items:center; height:100%; font-size:11px; color:var(--kf-steel); gap:3px; }
+.kf2 .cpromo .card .days i{ width:100%; border-radius:3px 3px 0 0; background:var(--kf-ledger); }
+.kf2 .cpromo .card .days i.w{ background:#E0A800; } .kf2 .cpromo .card .days i.b{ background:var(--kf-ember); }
+.kf2 .cpromo .card .note{ border-top:1px dashed var(--kf-line); padding-top:8px; font-size:13px; color:#3B3530; }
+</style>
+<div class="kf2">
+  <section class="cpromo dark">
+    <div class="wrap grid2">
+      <div>
+        <span class="tag">New in Pro · Crewline</span>
+        <h2>Stop burning money on payroll you only see at month-end.</h2>
+        <p class="lede">Crewline prices every shift the moment it's on the roster, award penalties and salaries included, and sets it against each day's revenue. You see today's payroll %, this week's and the weeks ahead, while there's still time to cut a shift. Your crew clock in from Telegram.</p>
+        <div class="row"><a class="btn" href="/pages/crewline">See Crewline</a><a class="btn paper" href="/products/kitchenfounder-membership">Pro is {{ pro_price }} a month</a></div>
+      </div>
+      <div class="card" aria-label="Example of the Crewline Pay page">
+        <div class="h"><span>PAY · THIS WEEK</span><span>Target 30%</span></div>
+        <div class="r"><div class="big">27.7<small>% of revenue</small></div><span class="pill">On target</span></div>
+        <div class="days" aria-hidden="true">
+          <div><i style="height:44%"></i>Mon</div><div><i style="height:41%"></i>Tue</div><div><i style="height:46%"></i>Wed</div><div><i style="height:42%"></i>Thu</div><div><i style="height:49%"></i>Fri</div><div><i class="w" style="height:53%"></i>Sat</div><div><i class="b" style="height:70%"></i>Sun</div>
+        </div>
+        <div class="note"><b>Worth a look:</b> Sunday is rostered at 41% of forecast revenue, over your 30% target.</div>
+      </div>
+    </div>
+  </section>
+</div>
+{% schema %}
+{ "name": "KF Crewline promo", "presets": [{ "name": "KF Crewline promo" }] }
+{% endschema %}
