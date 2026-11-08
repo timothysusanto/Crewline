@@ -45,6 +45,10 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
 
   // 2. Crew. Match people already on the list before adding anyone.
   const existing = (await staffStore.listByTenant(tenantId)).filter((s) => s.active !== false);
+  if (cfg.listCrew) {
+    const all = await staffStore.listByTenant(tenantId);
+    log.log(`[bootstrap] crew on file (${all.length}): ` + all.map((s) => `${s.name}|${String(s.phone).startsWith("pending-") ? "pending" : "mobile"}|${s.active === false ? "inactive" : "active"}|${s.role || ""}|${s.createdAt ? String(s.createdAt).slice(0, 16) : ""}`).join("; "));
+  }
   const idFor = new Map(); // config name -> staff id (phone or placeholder)
   let added = 0, merged = 0;
   for (const c of cfg.crew || []) {
@@ -66,7 +70,7 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
         phone: id, tenantId, name: c.name, role: c.role || "staff", active: true, createdAt: new Date().toISOString(),
         ...fill, ...(c.set || {}), ...(c.phone ? {} : { pendingMobile: true }),
       });
-      idFor.set(c.name, id); added++;
+      idFor.set(c.name, id); added++; log.log(`[bootstrap] added new crew: ${c.name}`);
     }
   }
 
