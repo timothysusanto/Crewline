@@ -79,6 +79,28 @@ function sendLocationRequest(chatId, body, options = {}) {
   );
 }
 
+/** Forward a voice note (by file_id, which works in any chat with this bot) with a caption. */
+function sendVoice(chatId, fileId, caption, options = {}) {
+  return call("sendVoice", { chat_id: chatId, voice: fileId, caption: String(caption || "").slice(0, 1000) }, options);
+}
+
+/** Tap-to-reply buttons: rows of labels; tapping one sends that label back as a normal message. */
+function sendChoices(chatId, body, rows, options = {}) {
+  return call(
+    "sendMessage",
+    {
+      chat_id: chatId,
+      text: body,
+      reply_markup: {
+        keyboard: rows.map((r) => (Array.isArray(r) ? r : [r]).map((text) => ({ text }))),
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    },
+    options
+  );
+}
+
 /** One-tap "share my phone number" button — used once to link a chat to a staff record. */
 function sendContactRequest(chatId, body, options = {}) {
   return call(
@@ -152,4 +174,4 @@ function setWebhook(url, secret, options = {}) {
   );
 }
 
-module.exports = { sendText, sendLocationRequest, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };
+module.exports = { sendText, sendLocationRequest, sendChoices, sendVoice, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };

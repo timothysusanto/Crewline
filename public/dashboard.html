@@ -38,7 +38,7 @@
   <div class="section" id="fixSection" style="display:none">
     <h2>Timesheet fixes <span class="pill warn" id="fixPill">0</span><span class="spacer"></span><button class="btn sm primary" id="fixAll" type="button">Fix all</button></h2>
     <div class="card rows" id="fixList"></div>
-    <div class="hint" style="margin-top:6px">One tap uses the roster: missed clock-ins are added as rostered, missed clock-outs end at the rostered finish, and long shifts get the rostered unpaid break. Tap a name to set your own times.</div>
+    <div class="hint" style="margin-top:6px">Staff requests from the bot (typed or 🎤 voice) come first. Below them, Crewline's own finds: one tap uses the roster — missed clock-ins added as rostered, missed clock-outs end at the rostered finish, long shifts get the rostered break. Tap a name to set your own times.</div>
   </div>
 
   <div class="section">
@@ -150,27 +150,39 @@ function render() {
 
 
 /* Timesheet fixes: forgot to clock in / out / break. One tap applies the roster's times. */
-let fixes = [];
+let fixes = [], requests = [];
 async function loadFixes() {
   try {
     const r = await CL.api("/api/pay/timesheet/fixes");
-    fixes = r.fixes || [];
-  } catch { fixes = []; }
+    fixes = r.fixes || []; requests = r.requests || [];
+  } catch { fixes = []; requests = []; }
   renderFixes();
 }
 function renderFixes() {
-  $("fixSection").style.display = fixes.length ? "" : "none";
-  if (!fixes.length) return;
-  $("fixPill").textContent = fixes.length;
+  const n = fixes.length + requests.length;
+  $("fixSection").style.display = n ? "" : "none";
+  if (!n) return;
+  $("fixPill").textContent = n;
+  $("fixAll").style.display = fixes.length ? "" : "none";
   $("fixAll").textContent = fixes.length === 1 ? "Fix it" : `Fix all ${fixes.length}`;
   const dayLabel = (d) => d === CL.today() ? "Today" : new Date(d + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
-  $("fixList").innerHTML = fixes.map((f, i) => `<div class="row" style="align-items:flex-start;flex-wrap:wrap">
+  const reqHtml = requests.map((q, i) => `<div class="row" style="align-items:flex-start;flex-wrap:wrap">
+      <div class="grow" style="min-width:0">
+        <div class="t ellipsis">${E(q.name)} <span class="pill ember">${q.voiceFileId ? "🎤 Voice request" : "Asked"}</span></div>
+        <div class="s">${E(dayLabel(q.date))} · ${q.in && q.out ? `${E(q.in)}–${E(q.out)}, ${q.breakMins ? E(q.breakMins) + " min break" : "no break"}` : "Times not given — listen in Telegram"} · ${E((q.what || "").toLowerCase())}${q.reason && !q.voiceFileId ? ` · “${E(q.reason)}”` : ""}</div>
+      </div>
+      <span class="btn-row"><button class="btn sm" data-rq-edit="${i}" type="button">${q.in && q.out ? "Edit" : "Set times"}</button>${q.in && q.out ? `<button class="btn sm ok" data-rq-ok="${i}" type="button">Approve</button>` : ""}<button class="btn sm danger" data-rq-no="${i}" type="button">✕</button></span>
+    </div>`).join("");
+  $("fixList").innerHTML = reqHtml + fixes.map((f, i) => `<div class="row" style="align-items:flex-start;flex-wrap:wrap">
       <div class="grow" data-edit="${i}" style="cursor:pointer;min-width:0">
         <div class="t ellipsis">${E(f.name)} <span class="pill ${f.type === "no_break" ? "info" : "warn"}">${E(f.title)}</span></div>
         <div class="s">${E(dayLabel(f.date))} · ${E(f.text)}</div>
       </div>
       <button class="btn sm ok" data-fix="${i}" type="button">${E(f.action)}</button>
     </div>`).join("");
+  $("fixList").querySelectorAll("[data-rq-ok]").forEach((b) => (b.onclick = () => decide(requests[Number(b.dataset.rqOk)], { action: "approve" }, b)));
+  $("fixList").querySelectorAll("[data-rq-no]").forEach((b) => (b.onclick = () => { if (CL.confirm("Decline this request? They'll get a message.")) decide(requests[Number(b.dataset.rqNo)], { action: "decline" }, b); }));
+  $("fixList").querySelectorAll("[data-rq-edit]").forEach((b) => (b.onclick = () => editRequest(requests[Number(b.dataset.rqEdit)])));
   $("fixList").querySelectorAll("[data-fix]").forEach((b) => (b.onclick = () => applyFixes([fixes[Number(b.dataset.fix)]], {}, b)));
   $("fixList").querySelectorAll("[data-edit]").forEach((d) => (d.onclick = () => editFix(fixes[Number(d.dataset.edit)])));
 }
@@ -184,6 +196,36 @@ async function applyFixes(list, overrides, btn) {
   } catch (e) { if (btn) btn.disabled = false; CL.toast("Couldn't fix that: " + e.message); }
 }
 $("fixAll").onclick = () => { if (fixes.length > 1 && !CL.confirm(`Apply the roster's times to all ${fixes.length}?`)) return; applyFixes(fixes, {}, $("fixAll")); };
+async function decide(q, body, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await CL.api(`/api/pay/timesheet/request/${encodeURIComponent(q.id)}`, { method: "POST", body });
+    fixes = r.fixes || []; requests = r.requests || [];
+    CL.toast(body.action === "approve" ? `Approved — ${q.name} has been told` : `Declined — ${q.name} has been told`);
+    renderFixes(); load(); return true;
+  } catch (e) { if (btn) btn.disabled = false; CL.toast(e.message); return false; }
+}
+function editRequest(q) {
+  const el = CL.makeSheet({
+    id: "cl-rq-sheet",
+    title: `${E(q.name)} — timesheet fix`,
+    body: `<div class="hint" style="margin-bottom:10px">${q.voiceFileId ? "🎤 They sent a voice note — it's in your Telegram. " : ""}${E(q.what || "")}${q.reason && !q.voiceFileId ? ` · “${E(q.reason)}”` : ""}</div>
+      <label class="field"><span class="lbl">Date worked</span><input id="rq-date" type="date" value="${E(q.date)}"></label>
+      <label class="field"><span class="lbl">Start</span><input id="rq-in" type="time" value="${E(q.in || "")}"></label>
+      <label class="field"><span class="lbl">Finish</span><input id="rq-out" type="time" value="${E(q.out || "")}"></label>
+      <label class="field"><span class="lbl">Unpaid break (minutes)</span><input id="rq-brk" type="number" inputmode="numeric" min="0" max="240" value="${E(q.breakMins != null ? q.breakMins : 30)}"></label>
+      <div class="err" id="rq-err"></div>`,
+    foot: `<button class="btn" id="rq-cancel" type="button">Cancel</button><button class="btn ok" id="rq-save" type="button">Approve</button>`,
+  });
+  const s = CL.sheet("cl-rq-sheet"); s.open();
+  el.querySelector("#rq-cancel").onclick = () => s.close();
+  el.querySelector("#rq-save").onclick = async () => {
+    const body = { action: "approve", date: el.querySelector("#rq-date").value, in: el.querySelector("#rq-in").value, out: el.querySelector("#rq-out").value, breakMins: el.querySelector("#rq-brk").value };
+    if (!body.in || !body.out) { el.querySelector("#rq-err").textContent = "Set the start and finish."; return; }
+    el.querySelector("#rq-save").disabled = true;
+    if (await decide(q, body)) s.close(); else el.querySelector("#rq-save").disabled = false;
+  };
+}
 function editFix(f) {
   const showIn = f.type === "no_in", showOut = f.type !== "no_break";
   const el = CL.makeSheet({

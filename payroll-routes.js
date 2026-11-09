@@ -19,6 +19,8 @@
 const express = require("express");
 const P = require("./payroll");
 const TF = require("./timesheetFixes");
+const TR = require("./timesheetRequests");
+const { sendText } = require("./whatsapp");
 
 module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsStore, rosterStore }) {
   const router = express.Router();
@@ -266,13 +268,17 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       shiftsStore.listRecentByTenant(req.tenantId, new Date(Date.now() - (WINDOW_DAYS + 2) * 86400000).toISOString()),
     ]);
     const out = TF.detect({ roster, attendance, staff, now: new Date(), timezone: settings.timezone, windowStart });
-    return { ...out, staff, settings };
+    const requests = (await TR.listPending(req.tenantId).catch(() => [])).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    // A person who asked for a fix for that day: show their request, not the guess.
+    const asked = new Set(requests.map((q) => `${q.workerId}|${q.date}`));
+    out.fixes = out.fixes.filter((f) => !asked.has(`${f.workerId}|${f.date}`));
+    return { ...out, requests, staff, settings };
   }
 
   router.get("/timesheet/fixes", async (req, res) => {
     try {
-      const { active, fixes } = await currentFixes(req);
-      res.json({ active, fixes });
+      const { active, fixes, requests } = await currentFixes(req);
+      res.json({ active: active || requests.length > 0, fixes, requests });
     } catch (e) { console.error("[pay] fixes failed:", e); res.status(500).json({ error: "Couldn't check timesheets." }); }
   });
 
@@ -292,8 +298,34 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
         } catch (e) { failed.push({ key, error: e.message }); }
       }
       const after = await currentFixes(req);
-      res.json({ ok: !failed.length, done, failed, fixes: after.fixes });
+      res.json({ ok: !failed.length, done, failed, fixes: after.fixes, requests: after.requests });
     } catch (e) { console.error("[pay] apply fix failed:", e); res.status(500).json({ error: "Couldn't apply that fix." }); }
+  });
+
+  // A staff request from the bot. Body: { action: "approve"|"decline", date?, in?, out?, breakMins?, note? }
+  router.post("/timesheet/request/:id", async (req, res) => {
+    try {
+      const q = await TR.getRequest(req.tenantId, req.params.id);
+      if (!q) return res.status(404).json({ error: "Request not found." });
+      if (q.status !== "pending") return res.status(409).json({ error: `Already ${q.status}.` });
+      const b = req.body || {};
+      const { settings } = await loadSettings(req);
+      const staff = await staffStore.listByTenant(req.tenantId);
+      const when = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+      if (b.action === "decline") {
+        await TR.updateRequest(req.tenantId, q.id, { status: "declined", decidedAt: new Date().toISOString(), note: String(b.note || "").slice(0, 200) });
+        await sendText(String(q.workerId), `Your timesheet fix for ${when(q.date)} wasn't approved.${b.note ? ` ${b.note}` : ""} Talk to your manager if it's not right.`).catch(() => {});
+      } else if (b.action === "approve") {
+        const t = { workerId: q.workerId, date: /^\d{4}-\d{2}-\d{2}$/.test(b.date || "") ? b.date : q.date, in: b.in || q.in, out: b.out || q.out, breakMins: b.breakMins != null && b.breakMins !== "" ? Number(b.breakMins) : q.breakMins };
+        if (!/^\d{2}:\d{2}$/.test(t.in || "") || !/^\d{2}:\d{2}$/.test(t.out || "")) return res.status(400).json({ error: "Set the start and finish times first." });
+        if (!isFinite(t.breakMins) || t.breakMins < 0 || t.breakMins > 240) return res.status(400).json({ error: "Break must be 0–240 minutes." });
+        await TF.applyTimes(t, { shiftsStore }, { tenantId: req.tenantId, timezone: settings.timezone, staff, by: "manager" });
+        await TR.updateRequest(req.tenantId, q.id, { status: "approved", decidedAt: new Date().toISOString(), applied: t });
+        await sendText(String(q.workerId), `✅ Timesheet fixed: ${when(t.date)}, ${t.in}–${t.out}, ${t.breakMins ? `${t.breakMins} min break` : "no break"}.`).catch(() => {});
+      } else return res.status(400).json({ error: "Approve or decline." });
+      const after = await currentFixes(req);
+      res.json({ ok: true, fixes: after.fixes, requests: after.requests });
+    } catch (e) { console.error("[pay] request decision failed:", e); res.status(500).json({ error: e.message || "Couldn't update that request." }); }
   });
 
   router.readWeek = readWeek;

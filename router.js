@@ -4,6 +4,7 @@ const { sendText } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
 const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
 const { handleRosterFile, handleImportReply } = require("./rosterImportHandler");
+const { handleFixMessage, handleFixVoice } = require("./timesheetRequests");
 const { handleRosterReply, looksLikeRosterReply } = require("./rosterReplyHandler");
 const {
   looksLikeAvailabilityReply, handleSameAgain, handleNotAvailable,
@@ -92,6 +93,7 @@ async function handleIncoming(message, deps, tenantContext = null) {
     // returns false when nothing is pending, so it can never shadow the
     // availability words or a shift-offer yes/no.
     if (await handleImportReply(from, body, tenantId, deps, sendOpts)) return;
+    if (await handleFixMessage(from, staff, message.text?.body || "", tenantId, deps, sendOpts)) return;
     if (body === "wallet") {
       await handleWalletCommand(from, staff, tenantId, deps, sendOpts);
       return;
@@ -129,7 +131,7 @@ async function handleIncoming(message, deps, tenantContext = null) {
         `"yes" to confirm your roster or "swap" to ask for a change, "same" to repeat last week's availability, ` +
         `"mon am pm, fri all" to set your week, ` +
         `"roster" to see your shifts, "wallet" to see your credentials (or send a photo of one to file it), ` +
-        `"train" for training modules.`,
+        `"train" for training modules, "fix" if you forgot to clock in or out (or send a voice note).`,
       sendOpts
     );
     return;
@@ -148,6 +150,12 @@ async function handleIncoming(message, deps, tenantContext = null) {
   if (type === "image") {
     // A photo is a credential for the wallet.
     await handleCredentialPhoto(from, staff, message.image, tenantId, deps, sendOpts);
+    return;
+  }
+
+  if (type === "voice") {
+    // A voice note is a timesheet-fix request for whoever finds typing hard.
+    await handleFixVoice(from, staff, message.voice, tenantId, deps, sendOpts);
     return;
   }
 

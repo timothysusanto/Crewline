@@ -46,6 +46,10 @@ function toRouterMessage(msg, phone) {
     const largest = msg.photo[msg.photo.length - 1];
     return { ...base, type: "image", image: { id: largest.file_id } };
   }
+  if (msg.voice || msg.audio) {
+    const v = msg.voice || msg.audio;
+    return { ...base, type: "voice", voice: { id: v.file_id, duration: v.duration || 0 } };
+  }
   if (msg.document && /^image\//.test(msg.document.mime_type || "")) {
     return { ...base, type: "image", image: { id: msg.document.file_id } };
   }

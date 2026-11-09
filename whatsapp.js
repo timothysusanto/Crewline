@@ -77,9 +77,18 @@ async function sendLocationRequest(to, body, options = {}) {
     : wa.sendLocationRequest(to, body, options);
 }
 
+/** Buttons on Telegram; on WhatsApp the choices are listed under the message. */
+async function sendChoices(to, body, rows, options = {}) {
+  const pick = await pickChannel(to, options);
+  if (!pick) return undeliverable(to);
+  if (pick.channel === "telegram") return tg.sendChoices(pick.chatId, body, rows);
+  const flat = rows.flat();
+  return wa.sendText(to, `${body}\n\nReply: ${flat.join(" · ")}`, options);
+}
+
 /** Photo download. `options.channel` says whose file ID this is. */
 async function fetchMediaBinary(mediaId, options = {}) {
   return options.channel === "telegram" ? tg.fetchMediaBinary(mediaId) : wa.fetchMediaBinary(mediaId, options);
 }
 
-module.exports = { sendText, sendLocationRequest, fetchMediaBinary, setChannelResolver, pickChannel };
+module.exports = { sendText, sendLocationRequest, sendChoices, fetchMediaBinary, setChannelResolver, pickChannel };

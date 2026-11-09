@@ -100,3 +100,36 @@ test("timesheet fixes: forgot clock-out → one tap closes at the rostered end; 
     assert.equal(again.json.failed[0].error, "Already fixed.");
   } finally { server.close(); }
 });
+
+test("staff request: approve applies the times; can't be approved twice; voice request needs times", async () => {
+  const TR = require("../timesheetRequests");
+  const stores = buildStores();
+  await seedDemo(stores);
+  const app = express(); app.use(express.json());
+  app.use("/api/pay", (req, _res, next) => { req.tenantId = "demo-venue"; next(); }, payrollRoutes({ db: null, ...stores }));
+  const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = async (p, o = {}) => { const res = await fetch(base + p, { ...o, headers: { "content-type": "application/json" }, body: o.body ? JSON.stringify(o.body) : undefined }); return { status: res.status, json: await res.json() }; };
+  try {
+    const staff = (await stores.staffStore.listByTenant("demo-venue")).find((s) => s.payType !== "salary" && s.active !== false);
+    const tz = P.DEFAULT_SETTINGS.timezone;
+    const day = P.addDays(P.todayIn(tz), -2);
+    const q = await TR.saveRequest("demo-venue", { tenantId: "demo-venue", workerId: String(staff.phone), name: staff.name, date: day, in: "15:00", out: "21:00", breakMins: 20, what: "Forgot to clock in", reason: "", status: "pending", createdAt: new Date().toISOString() });
+    const list = await call("/api/pay/timesheet/fixes");
+    assert.ok(list.json.requests.some((r) => r.id === q.id));
+    const ok = await call(`/api/pay/timesheet/request/${q.id}`, { method: "POST", body: { action: "approve" } });
+    assert.equal(ok.status, 200);
+    const { zonedToIso } = require("../timesheetFixes");
+    const rec = (await stores.shiftsStore.listByTenant("demo-venue")).find((s) => s.staffPhone === String(staff.phone) && s.clockIn.time === zonedToIso(day, "15:00", tz));
+    assert.ok(rec, "clock record added");
+    assert.equal(rec.clockOut.time, zonedToIso(day, "21:00", tz));
+    assert.equal(rec.amended.breakMinutes, 20);
+    const twice = await call(`/api/pay/timesheet/request/${q.id}`, { method: "POST", body: { action: "approve" } });
+    assert.equal(twice.status, 409);
+    const v = await TR.saveRequest("demo-venue", { tenantId: "demo-venue", workerId: String(staff.phone), name: staff.name, date: day, in: null, out: null, breakMins: null, voiceFileId: "x", status: "pending", createdAt: new Date().toISOString() });
+    const noTimes = await call(`/api/pay/timesheet/request/${v.id}`, { method: "POST", body: { action: "approve" } });
+    assert.equal(noTimes.status, 400);
+    const withTimes = await call(`/api/pay/timesheet/request/${v.id}`, { method: "POST", body: { action: "approve", in: "07:00", out: "12:00", breakMins: 0 } });
+    assert.equal(withTimes.status, 200);
+  } finally { server.close(); }
+});

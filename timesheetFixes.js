@@ -203,4 +203,37 @@ async function apply(fix, override, { shiftsStore }, { tenantId, timezone, staff
   throw new Error("Unknown fix.");
 }
 
-module.exports = { detect, apply, zonedToIso, rosterInstants, LATE_MINS };
+
+/**
+ * Apply a set of times a staff member asked for (and a manager approved):
+ * { workerId, date, in, out, breakMins }. Finds that person's clock record for the day
+ * (nearest clock-in to the requested start) and corrects it; if there is none, adds one.
+ */
+async function applyTimes(reqd, { shiftsStore }, { tenantId, timezone, staff, by }) {
+  const inIso = zonedToIso(reqd.date, reqd.in, timezone);
+  let outIso = zonedToIso(reqd.date, reqd.out, timezone);
+  if (ms(outIso) <= ms(inIso)) outIso = new Date(ms(outIso) + 86400000).toISOString();
+  if (hoursBetween(inIso, outIso) > 20) throw new Error("That shift is longer than 20 hours.");
+  const breakMins = Number(reqd.breakMins) || 0;
+  const note = { fixedBy: by || "manager", fixedAt: new Date().toISOString(), fixType: "request" };
+  const since = new Date(ms(inIso) - 18 * 3600000).toISOString();
+  const recs = (await shiftsStore.listRecentByTenant(tenantId, since)).filter((r) =>
+    String(r.staffPhone) === String(reqd.workerId) && r.clockIn && P.localDateTime(r.clockIn.time, timezone).date === reqd.date);
+  recs.sort((a, b) => Math.abs(ms(a.clockIn.time) - ms(inIso)) - Math.abs(ms(b.clockIn.time) - ms(inIso)));
+  const rec = recs[0];
+  if (!rec) {
+    const who = (staff || []).find((s) => String(s.phone) === String(reqd.workerId)) || {};
+    const { shiftId } = await shiftsStore.openShift({
+      tenantId, staffPhone: String(reqd.workerId), department: who.department || null, role: who.role || null,
+      clockIn: { time: inIso, addedByManager: true, ...note },
+    });
+    await shiftsStore.closeShift(shiftId, { time: outIso, forcedByManager: true, ...note });
+    await shiftsStore.amendShift(shiftId, { clockInTime: null, clockOutTime: null, breakMinutes: breakMins });
+    return { shiftId, added: true };
+  }
+  if (!rec.clockOut) await shiftsStore.closeShift(rec.shiftId, { time: outIso, forcedByManager: true, ...note });
+  await shiftsStore.amendShift(rec.shiftId, { clockInTime: inIso, clockOutTime: outIso, breakMinutes: breakMins });
+  return { shiftId: rec.shiftId, added: false };
+}
+
+module.exports = { detect, apply, applyTimes, zonedToIso, rosterInstants, LATE_MINS };
