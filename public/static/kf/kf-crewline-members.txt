@@ -1,0 +1,52 @@
+{%- comment -%} Crewline block on the member area (payroll-first, Nov 2026). Pro members see their setup steps; standard members see the upgrade. {%- endcomment -%}
+{%- include 'kf-access' -%}
+{%- assign pro_price = '$29' -%}
+{%- assign pro_url = '/products/kitchenfounder-membership' -%}
+{%- for v in all_products['kitchenfounder-membership'].variants -%}
+  {%- if v.title contains 'Pro' -%}
+    {%- assign pro_price = v.price | money_without_trailing_zeros -%}
+    {%- assign pro_url = '/products/kitchenfounder-membership?variant=' | append: v.id -%}
+  {%- endif -%}
+{%- endfor -%}
+{%- if kf_is_member -%}
+<div class="kf2">
+  <section>
+    <div class="wrap grid2">
+      <div>
+        <h2>Crewline: payroll against revenue, every day.</h2>
+        {%- if kf_is_pro -%}
+          <p>You're on Pro, so Crewline is included. Here is how your venue gets set up.</p>
+          <ul class="list">
+            <li><b>Within the day</b> you'll get an email with your dashboard link and venue key. If it's been more than a business day, reply to your order email.</li>
+            <li><b>Send your roster</b> as Excel or PDF, or add your crew by hand: name, mobile, employment type, award level or salary.</li>
+            <li><b>Set your payroll % target and revenue forecast</b> on the Pay page. That turns every shift into a % you can manage.</li>
+            <li><b>Each person opens the Crewline bot</b> in Telegram and taps "share my number". The bot only accepts a number already on your list.</li>
+            <li><b>Publish the roster.</b> Shifts go out to every linked phone, and clock-ins feed the Pay page. Next week, just send the roster file to the bot.</li>
+            <li><b>Forgotten clock-ins</b> show on Today with a one-tap fix. Staff can ask too: they type "fix" or send a voice note.</li>
+          </ul>
+          <a class="btn ghost" href="/pages/crewline">How Crewline works</a>
+        {%- else -%}
+          <p>Crewline comes with Pro Monthly ({{ pro_price }} a month). Every shift is priced under the Hospitality Award as you roster it and set against each day's revenue, so you see the payroll % while you can still change it. Your crew clock in from Telegram. Up to 15 staff.</p>
+          <div class="row"><a class="btn" href="{{ pro_url }}">Upgrade to Pro</a><a class="btn ghost" href="/pages/crewline">See how it works</a></div>
+          <p class="muted" style="margin-top:12px">Your guides, tools and member code carry over. Buy Pro at your next renewal and your access date moves forward from that payment.</p>
+        {%- endif -%}
+      </div>
+      <div class="docket">
+        <div class="dh"><span>CREWLINE</span><span>{%- if kf_is_pro -%}INCLUDED{%- else -%}PRO ONLY{%- endif -%}</span></div>
+        <p class="dt">What it tracks</p>
+        <div class="dl"><span>Payroll % of revenue</span><i></i><b>every day</b></div>
+        <div class="dl"><span>Shift cost</span><i></i><b>before you publish</b></div>
+        <div class="dl"><span>Award penalties</span><i></i><b>HIGA MA000009</b></div>
+        <div class="dl"><span>Salaries</span><i></i><b>daily cost</b></div>
+        <div class="dl"><span>Roster import</span><i></i><b>Excel · PDF</b></div>
+        <div class="dl"><span>Clock in / out</span><i></i><b>Telegram</b></div>
+        <div class="dl"><span>Timesheet fixes</span><i></i><b>one tap · 🎤 voice</b></div>
+        <div class="df">Staff need Telegram (free) and nothing else. Managers use the Pay page in any browser.</div>
+      </div>
+    </div>
+  </section>
+</div>
+{%- endif -%}
+{% schema %}
+{ "name": "KF Crewline members", "presets": [{ "name": "KF Crewline members" }] }
+{% endschema %}
