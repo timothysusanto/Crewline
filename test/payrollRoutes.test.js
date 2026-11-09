@@ -67,3 +67,36 @@ test("export.csv has one line per worked shift and the totals", async () => {
     assert.ok(lines.some((l) => l.startsWith("Totals,")));
   } finally { close(); }
 });
+
+test("timesheet fixes: forgot clock-out → one tap closes at the rostered end; second call is a no-op", async () => {
+  const stores = buildStores();
+  await seedDemo(stores);
+  const app = express(); app.use(express.json());
+  app.use("/api/pay", (req, _res, next) => { req.tenantId = "demo-venue"; next(); }, payrollRoutes({ db: null, ...stores }));
+  const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const call = async (p, o = {}) => { const res = await fetch(base + p, { ...o, headers: { "content-type": "application/json" }, body: o.body ? JSON.stringify(o.body) : undefined }); return { status: res.status, json: await res.json() }; };
+  try {
+    const staff = (await stores.staffStore.listByTenant("demo-venue")).find((s) => s.payType !== "salary" && s.active !== false);
+    const settings = (await stores.tenantStore.findById("demo-venue")) || {};
+    const tz = (settings.payroll || {}).timezone || P.DEFAULT_SETTINGS.timezone;
+    const yesterday = P.addDays(P.todayIn(tz), -1);
+    await stores.rosterStore.addShift({ tenantId: "demo-venue", workerId: staff.phone, date: yesterday, start: "09:00", end: "17:00", unpaidBreakMins: 30, published: true });
+    const { zonedToIso } = require("../timesheetFixes");
+    await stores.shiftsStore.openShift({ tenantId: "demo-venue", staffPhone: staff.phone, clockIn: { time: zonedToIso(yesterday, "08:58", tz) } });
+    const before = await call("/api/pay/timesheet/fixes");
+    assert.equal(before.json.active, true);
+    const f = before.json.fixes.find((x) => x.type === "no_out" && x.workerId === String(staff.phone));
+    assert.ok(f, "open clock-in past the rostered end is flagged");
+    const r = await call("/api/pay/timesheet/fix", { method: "POST", body: { keys: [f.key] } });
+    assert.equal(r.status, 200);
+    assert.equal(r.json.done.length, 1);
+    assert.ok(!r.json.fixes.some((x) => x.key === f.key));
+    const rec = (await stores.shiftsStore.listByTenant("demo-venue")).find((s) => s.staffPhone === staff.phone && !s.clockOut === false && s.clockIn.time === zonedToIso(yesterday, "08:58", tz));
+    assert.equal(rec.clockOut.time, zonedToIso(yesterday, "17:00", tz));
+    assert.equal(rec.amended.breakMinutes, 30);
+    const again = await call("/api/pay/timesheet/fix", { method: "POST", body: { keys: [f.key] } });
+    assert.equal(again.json.done.length, 0);
+    assert.equal(again.json.failed[0].error, "Already fixed.");
+  } finally { server.close(); }
+});

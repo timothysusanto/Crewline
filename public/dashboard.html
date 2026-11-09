@@ -35,6 +35,12 @@
 
   <div class="section" id="setupSection" style="display:none"></div>
 
+  <div class="section" id="fixSection" style="display:none">
+    <h2>Timesheet fixes <span class="pill warn" id="fixPill">0</span><span class="spacer"></span><button class="btn sm primary" id="fixAll" type="button">Fix all</button></h2>
+    <div class="card rows" id="fixList"></div>
+    <div class="hint" style="margin-top:6px">One tap uses the roster: missed clock-ins are added as rostered, missed clock-outs end at the rostered finish, and long shifts get the rostered unpaid break. Tap a name to set your own times.</div>
+  </div>
+
   <div class="section">
     <h2>On shift now</h2>
     <div id="onShift"><div class="empty">Loading…</div></div>
@@ -85,7 +91,7 @@ function onBreak(s) { const b = (s.breaks || [])[s.breaks ? s.breaks.length - 1 
 async function load() {
   try { data = await CL.api("/api/dashboard"); } catch (e) { if (e.status !== 401) $("onShift").innerHTML = `<div class="err">${E(e.message)}</div>`; return; }
   render();
-  loadPay(); loadRosterToday(); loadSetup();
+  loadPay(); loadRosterToday(); loadSetup(); loadFixes();
 }
 
 /* First-run checklist: shown until the venue has crew with pay details, a site, a forecast and a published roster. */
@@ -140,6 +146,69 @@ function render() {
     </div>`).join("")}</div>`;
   $("review").querySelectorAll("[data-ok]").forEach((b) => (b.onclick = () => review(b.dataset.ok, true, b)));
   $("review").querySelectorAll("[data-cut]").forEach((b) => (b.onclick = () => review(b.dataset.cut, false, b)));
+}
+
+
+/* Timesheet fixes: forgot to clock in / out / break. One tap applies the roster's times. */
+let fixes = [];
+async function loadFixes() {
+  try {
+    const r = await CL.api("/api/pay/timesheet/fixes");
+    fixes = r.fixes || [];
+  } catch { fixes = []; }
+  renderFixes();
+}
+function renderFixes() {
+  $("fixSection").style.display = fixes.length ? "" : "none";
+  if (!fixes.length) return;
+  $("fixPill").textContent = fixes.length;
+  $("fixAll").textContent = fixes.length === 1 ? "Fix it" : `Fix all ${fixes.length}`;
+  const dayLabel = (d) => d === CL.today() ? "Today" : new Date(d + "T12:00:00").toLocaleDateString("en-AU", { weekday: "short", day: "numeric", month: "short" });
+  $("fixList").innerHTML = fixes.map((f, i) => `<div class="row" style="align-items:flex-start;flex-wrap:wrap">
+      <div class="grow" data-edit="${i}" style="cursor:pointer;min-width:0">
+        <div class="t ellipsis">${E(f.name)} <span class="pill ${f.type === "no_break" ? "info" : "warn"}">${E(f.title)}</span></div>
+        <div class="s">${E(dayLabel(f.date))} · ${E(f.text)}</div>
+      </div>
+      <button class="btn sm ok" data-fix="${i}" type="button">${E(f.action)}</button>
+    </div>`).join("");
+  $("fixList").querySelectorAll("[data-fix]").forEach((b) => (b.onclick = () => applyFixes([fixes[Number(b.dataset.fix)]], {}, b)));
+  $("fixList").querySelectorAll("[data-edit]").forEach((d) => (d.onclick = () => editFix(fixes[Number(d.dataset.edit)])));
+}
+async function applyFixes(list, overrides, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await CL.api("/api/pay/timesheet/fix", { method: "POST", body: { keys: list.map((f) => f.key), overrides } });
+    fixes = r.fixes || [];
+    CL.toast(r.failed && r.failed.length ? `Fixed ${r.done.length}. ${r.failed[0].error}` : r.done.length === 1 ? r.done[0] : `Fixed ${r.done.length} timesheets`);
+    renderFixes(); load();
+  } catch (e) { if (btn) btn.disabled = false; CL.toast("Couldn't fix that: " + e.message); }
+}
+$("fixAll").onclick = () => { if (fixes.length > 1 && !CL.confirm(`Apply the roster's times to all ${fixes.length}?`)) return; applyFixes(fixes, {}, $("fixAll")); };
+function editFix(f) {
+  const showIn = f.type === "no_in", showOut = f.type !== "no_break";
+  const el = CL.makeSheet({
+    id: "cl-fix-sheet",
+    title: `${E(f.name)} — ${E(f.title.toLowerCase())}`,
+    body: `<div class="hint" style="margin-bottom:10px">${E(f.text)}</div>
+      ${showIn ? `<label class="field"><span class="lbl">Clocked in</span><input id="fx-in" type="time" value="${E(f.hint.in)}"></label>` : ""}
+      ${showOut ? `<label class="field"><span class="lbl">Clocked out</span><input id="fx-out" type="time" value="${E(f.hint.out)}"></label>` : ""}
+      <label class="field"><span class="lbl">Unpaid break (minutes)</span><input id="fx-brk" type="number" inputmode="numeric" min="0" max="240" value="${E(f.hint.breakMins)}"></label>
+      <div class="err" id="fx-err"></div>`,
+    foot: `<button class="btn" id="fx-cancel" type="button">Cancel</button><button class="btn primary" id="fx-save" type="button">Save</button>`,
+  });
+  const s = CL.sheet("cl-fix-sheet"); s.open();
+  el.querySelector("#fx-cancel").onclick = () => s.close();
+  el.querySelector("#fx-save").onclick = async () => {
+    const ov = { breakMins: el.querySelector("#fx-brk").value };
+    if (showIn) ov.in = el.querySelector("#fx-in").value;
+    if (showOut) ov.out = el.querySelector("#fx-out").value;
+    el.querySelector("#fx-save").disabled = true;
+    try {
+      const r = await CL.api("/api/pay/timesheet/fix", { method: "POST", body: { keys: [f.key], overrides: { [f.key]: ov } } });
+      if (r.failed && r.failed.length) throw new Error(r.failed[0].error);
+      fixes = r.fixes || []; s.close(); CL.toast(r.done[0] || "Saved"); renderFixes(); load();
+    } catch (e) { el.querySelector("#fx-err").textContent = e.message; el.querySelector("#fx-save").disabled = false; }
+  };
 }
 
 async function forceClose(id, btn) {

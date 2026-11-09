@@ -18,6 +18,7 @@
 
 const express = require("express");
 const P = require("./payroll");
+const TF = require("./timesheetFixes");
 
 module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsStore, rosterStore }) {
   const router = express.Router();
@@ -252,6 +253,49 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
   });
 
   // Used by the one-off venue setup (bootstrap.js) to load revenue forecasts.
+
+  // ---------- timesheet fix-ups (one tap) ----------
+  const WINDOW_DAYS = 3;
+  async function currentFixes(req) {
+    const { settings } = await loadSettings(req);
+    const today = P.todayIn(settings.timezone);
+    const windowStart = P.addDays(today, -WINDOW_DAYS);
+    const [staff, roster, attendance] = await Promise.all([
+      staffStore.listByTenant(req.tenantId),
+      rosterInRange(req.tenantId, windowStart, P.addDays(today, 1)),
+      shiftsStore.listRecentByTenant(req.tenantId, new Date(Date.now() - (WINDOW_DAYS + 2) * 86400000).toISOString()),
+    ]);
+    const out = TF.detect({ roster, attendance, staff, now: new Date(), timezone: settings.timezone, windowStart });
+    return { ...out, staff, settings };
+  }
+
+  router.get("/timesheet/fixes", async (req, res) => {
+    try {
+      const { active, fixes } = await currentFixes(req);
+      res.json({ active, fixes });
+    } catch (e) { console.error("[pay] fixes failed:", e); res.status(500).json({ error: "Couldn't check timesheets." }); }
+  });
+
+  // Body: { keys: [..], overrides?: { [key]: { in, out, breakMins } } }. The fix is recomputed here, never trusted from the client.
+  router.post("/timesheet/fix", async (req, res) => {
+    try {
+      const keys = Array.isArray(req.body && req.body.keys) ? req.body.keys.slice(0, 200) : [];
+      const overrides = (req.body && req.body.overrides) || {};
+      if (!keys.length) return res.status(400).json({ error: "Nothing to fix." });
+      const cur = await currentFixes(req);
+      const done = [], failed = [];
+      for (const key of keys) {
+        const fix = cur.fixes.find((f) => f.key === key);
+        if (!fix) { failed.push({ key, error: "Already fixed." }); continue; }
+        try {
+          done.push(await TF.apply(fix, overrides[key], { shiftsStore }, { tenantId: req.tenantId, timezone: cur.settings.timezone, staff: cur.staff, by: "manager" }));
+        } catch (e) { failed.push({ key, error: e.message }); }
+      }
+      const after = await currentFixes(req);
+      res.json({ ok: !failed.length, done, failed, fixes: after.fixes });
+    } catch (e) { console.error("[pay] apply fix failed:", e); res.status(500).json({ error: "Couldn't apply that fix." }); }
+  });
+
   router.readWeek = readWeek;
   router.writeWeek = writeWeek;
   return router;
