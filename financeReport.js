@@ -6,15 +6,15 @@
  *
  *  OUT  collectMonth() + buildWorkbook(): one Excel file for a calendar month with
  *       payroll per day split Casual / FT&PT, wages only (ex on-cost). Those are the
- *       two rows finance types by hand into their Input Sheet, laid out the same
- *       way (one column per day, the 1st of the month in column G) so it is one
- *       copy and one paste.
+ *       two rows a finance team keys per department, laid out one column per day
+ *       (the 1st of the month in column G) so it is one copy and one paste.
  *
  *  IN   parseFinanceWorkbook(): reads finance's own workbook (sheets "Input Sheet",
  *       "Report", "Index") and returns actual revenue per day by outlet, their
  *       payroll actuals and the month-to-date budget lines.
  *
- *  buildReport(): the numbers behind the animated report page (/report).
+ *  buildReport(): the numbers behind the month-to-date report (animated at /report,
+ *       printable at /report/print).
  *
  * Everything here is a pure function except parseFinanceWorkbook, which only reads
  * the buffer it is given.
@@ -102,16 +102,15 @@ function withOncost(part, oncost) {
 function colLetter(n) { let s = ""; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
 
 /**
- * The Excel file finance downloads. Sheet 1 mirrors their Input Sheet (day columns
- * start at G), sheet 2 is one line per day, sheet 3 one line per person.
- * @param {object} o { venue, month, collected, oncost:{casualPct,permanentPct}, finance (optional parsed/stored finance month), generatedAt }
+ * The month's payroll as Excel. Sheet 1 runs one column per day (starting at G) with
+ * Casual / FT&PT rows per department, sheet 2 is one line per day, sheet 3 one line per person.
+ * @param {object} o { venue, month, collected, oncost:{casualPct,permanentPct}, generatedAt }
  */
 function buildWorkbook(o) {
-  const { venue, month, collected, oncost = {}, finance = null } = o;
+  const { venue, month, collected, oncost = {} } = o;
   const wb = new ExcelJS.Workbook();
   wb.creator = "Crewline"; wb.created = new Date(o.generatedAt || Date.now());
-  const rows = collected.rows, FIRST = 7; // column G, as in the finance Input Sheet
-  const hasService = rows.some((r) => r.service.total > 0);
+  const rows = collected.rows, FIRST = 7; // day columns start at G
   const money = '#,##0.00;[Red]-#,##0.00;"-"';
   const yellow = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF2B3" } };
   const head = { type: "pattern", pattern: "solid", fgColor: { argb: "FF3E4C59" } };
@@ -120,13 +119,13 @@ function buildWorkbook(o) {
   const lastActualCol = actualDays.length ? colLetter(FIRST + actualDays.length - 1) : null;
 
   // ---- Sheet 1: paste block ----
-  const s1 = wb.addWorksheet("For Input Sheet", { views: [{ state: "frozen", xSplit: 6, ySplit: 6 }] });
+  const s1 = wb.addWorksheet("By day", { views: [{ state: "frozen", xSplit: 6, ySplit: 6 }] });
   s1.getColumn(4).width = 34; s1.getColumn(5).width = 14; s1.getColumn(1).width = 3; s1.getColumn(2).width = 3; s1.getColumn(3).width = 10; s1.getColumn(6).width = 3;
   for (let i = 0; i < rows.length; i++) s1.getColumn(FIRST + i).width = 12;
-  s1.getCell("D1").value = `${venue || "Venue"} — payroll by day for finance — ${monthLabel(month)}`; s1.getCell("D1").font = { bold: true, size: 14 };
-  s1.getCell("D2").value = "From Crewline. Wages only (ex on-cost): the same basis as the Casual and FT&PT rows on the Input Sheet of the F&B Daily Payroll workbook.";
+  s1.getCell("D1").value = `${venue || "Venue"} — payroll by day — ${monthLabel(month)}`; s1.getCell("D1").font = { bold: true, size: 14 };
+  s1.getCell("D2").value = "Wages only (ex on-cost), split Casual and FT&PT, one column per day.";
   s1.getCell("D3").value = lastActualCol
-    ? `HOW TO USE: copy the yellow cells (G8 to ${lastActualCol}9), then Paste Special > Values on the Input Sheet, starting at the Kitchen > Casual cell for the 1st of the month (G98).`
+    ? `For your finance workbook: copy the yellow cells (G8 to ${lastActualCol}9) and paste them as values, Casual row first, starting at the 1st of the month.`
     : "No days have passed yet this month, so there is nothing to paste. Rostered cost is further down.";
   s1.getCell("D3").font = { bold: true, color: { argb: "FFC13F0F" } };
   s1.getCell("E5").value = "MTD"; s1.getCell("E5").font = { bold: true };
@@ -151,45 +150,50 @@ function buildWorkbook(o) {
   };
   const act = (f) => (r) => (r.basis === "actual" ? f(r) : null);
   const fut = (f) => (r) => (r.basis === "roster" ? f(r) : null);
+  // One block per department that has payroll this month; a single-team employer gets one block called "Payroll".
+  const NAMES = { kitchen: "Kitchen", service: "Service", other: "Team" };
+  let depts = ["kitchen", "service", "other"].filter((k) => rows.some((r) => r[k].total > 0 || r[k].hours > 0));
+  if (!depts.length) depts = ["other"];
+  const nameOf = (k) => (depts.length === 1 && k === "other" ? "Payroll" : NAMES[k]);
   s1.getCell("D7").value = "ACTUAL TO DATE (ex on-cost)"; s1.getCell("D7").font = { bold: true, color: { argb: "FF3E4C59" } };
-  line(8, "Kitchen", "Casual", act((r) => r.kitchen.casual), { yellow: true });
-  line(9, "Kitchen", "FT&PT", act((r) => r.kitchen.ftpt), { yellow: true });
-  line(10, "Kitchen", "Kitchen total", act((r) => r.kitchen.total), { bold: true });
-  line(11, "Kitchen", `Kitchen in on-cost (casual +${oncost.casualPct}%, FT&PT +${oncost.permanentPct}%)`, act((r) => withOncost(r.kitchen, oncost)));
-  line(12, "Kitchen", "Kitchen hours", act((r) => r.kitchen.hours));
-  let n = 14;
-  if (hasService) {
-    line(n++, "Service", "Casual (all outlets)", act((r) => r.service.casual));
-    line(n++, "Service", "FT&PT (all outlets)", act((r) => r.service.ftpt));
-    line(n++, "Service", "Service total", act((r) => r.service.total), { bold: true });
+  let n = 8;
+  depts.forEach((k, i) => {
+    const nm = nameOf(k);
+    line(n++, nm, "Casual", act((r) => r[k].casual), { yellow: i === 0 });
+    line(n++, nm, "FT&PT", act((r) => r[k].ftpt), { yellow: i === 0 });
+    line(n++, nm, `${nm} total`, act((r) => r[k].total), { bold: true });
+    line(n++, nm, `${nm} in on-cost (casual +${oncost.casualPct}%, FT&PT +${oncost.permanentPct}%)`, act((r) => withOncost(r[k], oncost)));
+    line(n++, nm, `${nm} hours`, act((r) => r[k].hours));
     n++;
-  }
+  });
   s1.getCell(n, 4).value = "ROSTERED AHEAD (not worked yet, ex on-cost)"; s1.getCell(n, 4).font = { bold: true, color: { argb: "FF3E4C59" } }; n++;
-  line(n++, "Kitchen", "Casual", fut((r) => r.kitchen.casual));
-  line(n++, "Kitchen", "FT&PT", fut((r) => r.kitchen.ftpt));
-  line(n++, "Kitchen", "Kitchen total", fut((r) => r.kitchen.total), { bold: true });
+  depts.forEach((k) => {
+    const nm = nameOf(k);
+    line(n++, nm, "Casual", fut((r) => r[k].casual));
+    line(n++, nm, "FT&PT", fut((r) => r[k].ftpt));
+    line(n++, nm, `${nm} total`, fut((r) => r[k].total), { bold: true });
+  });
   n++;
   s1.getCell(n, 4).value = "Salaried staff are posted on the days they are rostered (weekly salary ÷ rostered days). Super is inside the on-cost %, never a wage line.";
   s1.getCell(n, 4).font = { italic: true, color: { argb: "FF6B655D" } };
 
   // ---- Sheet 2: one line per day ----
   const s2 = wb.addWorksheet("Daily", { views: [{ state: "frozen", ySplit: 1 }] });
-  const fin = new Map(((finance && finance.days) || []).map((d) => [d.date, d]));
-  const cols = [["Date", 12], ["Day", 11], ["Basis", 9], ["Kitchen casual", 15], ["Kitchen FT&PT", 15], ["Kitchen total (ex on-cost)", 22], ["Kitchen in on-cost", 18], ["Kitchen hours", 13],
-    ["F&B revenue", 14], ["Revenue is", 11], ["Kitchen % of revenue", 19], ["Finance: kitchen (ex on-cost)", 26], ["Crewline minus finance", 21]];
+  const cols = [["Date", 12], ["Day", 11], ["Basis", 9], ...depts.flatMap((k) => [[`${nameOf(k)} casual`, 15], [`${nameOf(k)} FT&PT`, 15]]),
+    ["Total wages (ex on-cost)", 22], ["Total in on-cost", 16], ["Hours", 10], ["Revenue", 14], ["Revenue is", 11], ["Payroll % of revenue", 19]];
   s2.columns = cols.map(([header, width]) => ({ header, width }));
   s2.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; s2.getRow(1).fill = head;
+  const base = 3 + depts.length * 2;
   for (const r of rows) {
-    const f = fin.get(r.date); const inc = withOncost(r.kitchen, oncost);
-    const finEx = f && f.kitchenEx ? round2((f.kitchenEx.casual || 0) + (f.kitchenEx.ftpt || 0)) : null;
-    const x = s2.addRow([new Date(r.date + "T00:00:00Z"), DAY[dow(r.date)], r.basis === "actual" ? "Actual" : "Roster", r.kitchen.casual, r.kitchen.ftpt, r.kitchen.total, inc, r.kitchen.hours,
-      r.revenue, r.revenueKind ? (r.revenueKind === "actual" ? "Actual" : "Forecast") : null, r.revenue > 0 ? inc / r.revenue : null, finEx, finEx != null ? round2(r.kitchen.total - finEx) : null]);
-    x.getCell(1).numFmt = "d-mmm-yy"; for (const c of [4, 5, 6, 7, 9, 12, 13]) x.getCell(c).numFmt = money; x.getCell(11).numFmt = "0.0%";
+    const ex = round2(depts.reduce((t, k) => t + r[k].total, 0)), inc = round2(depts.reduce((t, k) => t + withOncost(r[k], oncost), 0)), hours = round2(depts.reduce((t, k) => t + r[k].hours, 0));
+    const x = s2.addRow([new Date(r.date + "T00:00:00Z"), DAY[dow(r.date)], r.basis === "actual" ? "Actual" : "Roster", ...depts.flatMap((k) => [r[k].casual, r[k].ftpt]), ex, inc, hours,
+      r.revenue, r.revenueKind ? (r.revenueKind === "actual" ? "Actual" : "Forecast") : null, r.revenue > 0 ? inc / r.revenue : null]);
+    x.getCell(1).numFmt = "d-mmm-yy"; for (let c = 4; c <= base + 2; c++) x.getCell(c).numFmt = money; x.getCell(base + 4).numFmt = money; x.getCell(base + 6).numFmt = "0.0%";
   }
 
   // ---- Sheet 3: one line per person ----
   const s3 = wb.addWorksheet("By person", { views: [{ state: "frozen", xSplit: 4, ySplit: 1 }] });
-  s3.columns = [{ header: "Name", width: 26 }, { header: "Department", width: 12 }, { header: "Finance class", width: 13 }, { header: "Type", width: 11 },
+  s3.columns = [{ header: "Name", width: 26 }, { header: "Department", width: 12 }, { header: "Class", width: 10 }, { header: "Type", width: 11 },
     { header: "Month total", width: 13 }, { header: "Hours", width: 9 }, ...rows.map((r) => ({ header: shortDate(r.date), width: 11 }))];
   s3.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } }; s3.getRow(1).fill = head;
   for (const p of collected.people) {
@@ -362,95 +366,113 @@ function toStored(parsed, meta = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// The animated report
+// The report (animated at /report, printable at /report/print)
 // ---------------------------------------------------------------------------
 
 const money0 = (n) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-AU");
+const HOSTS = ["chef", "server", "team", "site"];
+const FOCUS = { kitchen: "Kitchen payroll", service: "Service payroll", all: "Payroll" };
+const DEPT_LABEL = { kitchen: "Kitchen", service: "Service", other: "Team" };
 
 /**
- * Numbers for /report. With a finance month imported, finance's figures lead
- * (they are the official ones) and Crewline's roster cost sits beside them.
- * Without one, it runs on Crewline's own payroll and revenue.
- * @param {object} o { venue, month, today, collected, oncost, targets:{kitchenPct,totalPct}, finance }
+ * Numbers for the month-to-date report. It reports the payroll this venue runs in
+ * Crewline: one department if that's all there is ("Kitchen payroll"), otherwise
+ * all payroll. Where a finance month has been loaded its revenue, payroll and
+ * budget lines are used; otherwise Crewline's own payroll and revenue.
+ * Payroll is always in on-cost.
+ * @param {object} o { venue, month, today, collected, oncost, targets:{kitchenPct,totalPct}, finance, host }
  */
 function buildReport(o) {
   const { venue, month, today, collected, oncost = {}, targets = {}, finance = null } = o;
   const crew = new Map(collected.rows.map((r) => [r.date, r]));
   const useFin = Boolean(finance && finance.days && finance.days.length);
+  const used = new Set((collected.people || []).map((p) => p.department));
+  const focus = used.size === 1 && used.has("kitchen") ? "kitchen" : used.size === 1 && used.has("service") ? "service" : "all";
+  const label = FOCUS[focus];
   const through = useFin ? finance.through : (() => { const past = collected.rows.filter((r) => r.date < today); return past.length ? past[past.length - 1].date : null; })();
   const dates = monthDates(month).filter((d) => through && d <= through);
   const finBy = new Map(((finance && finance.days) || []).map((d) => [d.date, d]));
-  const budgetPct = useFin && finance.mtd && finance.mtd.pct && finance.mtd.pct.kitchen ? finance.mtd.pct.kitchen.budget : (Number(targets.kitchenPct) || null);
+  const M = (useFin && finance.mtd) || {};
+  const finKey = focus === "all" ? "total" : focus;
+  const tk = Number(targets.kitchenPct) || 0, tt = Number(targets.totalPct) || 0;
+  const targetFor = (k) => (k === "kitchen" ? tk : k === "service" ? Math.max(0, tt - tk) : tt) || null;
+  const budgetPct = M.pct && M.pct[finKey] ? M.pct[finKey].budget : targetFor(focus);
+  const own = (c, k) => (k === "all" ? withOncost(c.kitchen, oncost) + withOncost(c.service, oncost) + withOncost(c.other, oncost) : withOncost(c[k], oncost));
 
   const days = dates.map((d) => {
     const c = crew.get(d), f = finBy.get(d);
-    const crewline = c ? withOncost(c.kitchen, oncost) : 0;
     const revenue = f ? f.revenue : (c && c.revenue != null ? c.revenue : null);
-    const kitchen = f ? f.kitchenInc : crewline;
-    return { date: d, label: shortDate(d), dow: dow(d), revenue, revenueKind: f ? "actual" : (c && c.revenueKind) || null, kitchen: round2(kitchen), crewline: round2(crewline), crewlineHours: c ? c.kitchen.hours : 0,
-      pct: revenue > 0 ? round1((kitchen / revenue) * 100) : null, outlets: f ? f.outlets : null };
+    const payroll = round2(f ? (focus === "kitchen" ? f.kitchenInc : focus === "service" ? f.serviceInc : (f.kitchenInc || 0) + (f.serviceInc || 0)) : c ? own(c, focus) : 0);
+    return { date: d, label: shortDate(d), revenue, revenueKind: f ? "actual" : (c && c.revenueKind) || null, payroll, pct: revenue > 0 ? round1((payroll / revenue) * 100) : null };
   });
   const sum = (k) => round2(days.reduce((t, d) => t + (d[k] || 0), 0));
-  const M = (useFin && finance.mtd) || {};
-  // Finance's own month-to-date lines win where they exist (their sheet is the official figure).
   const revenue = M.revenue && M.revenue.total ? M.revenue.total.actual : sum("revenue");
-  const kitchen = M.payroll && M.payroll.kitchen ? M.payroll.kitchen.actual : sum("kitchen");
-  // Crewline against finance: only days Crewline has a roster or clock-ins for.
-  const both = useFin ? days.filter((d) => d.crewlineHours > 0) : [];
-  const crewline = round2(both.reduce((t, d) => t + d.crewline, 0)), finSame = round2(both.reduce((t, d) => t + d.kitchen, 0));
   const revBudget = M.revenue && M.revenue.total ? M.revenue.total.budget : null;
-  const kitBudget = M.payroll && M.payroll.kitchen ? M.payroll.kitchen.budget : (budgetPct && revenue ? round2(revenue * budgetPct / 100) : null);
-  const pct = revenue > 0 ? round1((kitchen / revenue) * 100) : null;
-  const status = pct == null || budgetPct == null ? "none" : pct <= budgetPct ? "ok" : pct <= budgetPct * 1.1 ? "warn" : "over";
-
+  const payroll = M.payroll && M.payroll[finKey] ? M.payroll[finKey].actual : sum("payroll");
+  const payBudget = M.payroll && M.payroll[finKey] ? M.payroll[finKey].budget : (budgetPct && revenue ? round2(revenue * budgetPct / 100) : null);
+  const pct = revenue > 0 ? round1((payroll / revenue) * 100) : null;
+  const statusOf = (p, b) => (p == null || b == null ? "none" : p <= b ? "ok" : p <= b * 1.1 ? "warn" : "over");
+  const status = statusOf(pct, budgetPct);
   const mtd = {
     revenue: { actual: revenue, budget: revBudget, variance: revBudget != null ? revenue - revBudget : null },
-    kitchen: { actual: kitchen, budget: kitBudget, variance: kitBudget != null ? kitchen - kitBudget : null, pct, budgetPct, status },
-    service: M.payroll && M.payroll.service ? { ...M.payroll.service, variance: M.payroll.service.actual - M.payroll.service.budget, pct: M.pct && M.pct.service ? M.pct.service.actual : null, budgetPct: M.pct && M.pct.service ? M.pct.service.budget : null } : null,
-    total: M.payroll && M.payroll.total ? { ...M.payroll.total, variance: M.payroll.total.actual - M.payroll.total.budget, pct: M.pct && M.pct.total ? M.pct.total.actual : null, budgetPct: M.pct && M.pct.total ? M.pct.total.budget : null } : null,
-    crewline: both.length ? { kitchen: crewline, finance: finSame, days: both.length, variance: round2(crewline - finSame) } : null,
+    payroll: { label, actual: payroll, budget: payBudget, variance: payBudget != null ? payroll - payBudget : null, pct, budgetPct, status },
   };
+
+  // Payroll by department, for the table.
+  let departments = [];
+  if (M.payroll) {
+    for (const [k, name] of [["kitchen", "Kitchen"], ["service", "Service"], ["total", "Total payroll"]]) {
+      const x = M.payroll[k]; if (!x) continue;
+      const p = M.pct && M.pct[k] ? M.pct[k] : null;
+      departments.push({ name, total: k === "total", actual: x.actual, budget: x.budget, variance: x.actual - x.budget, pct: p ? p.actual : null, budgetPct: p ? p.budget : null });
+    }
+  } else {
+    const rowsIn = dates.map((d) => crew.get(d)).filter(Boolean);
+    for (const k of ["kitchen", "service", "other"]) {
+      const actual = round2(rowsIn.reduce((t, c) => t + withOncost(c[k], oncost), 0)); if (!actual) continue;
+      const b = k === "other" ? null : targetFor(k);
+      const budget = b && revenue ? round2(revenue * b / 100) : null;
+      departments.push({ name: DEPT_LABEL[k], total: false, actual, budget, variance: budget != null ? actual - budget : null, pct: revenue > 0 ? round1((actual / revenue) * 100) : null, budgetPct: b });
+    }
+    if (departments.length > 1) {
+      const actual = round2(departments.reduce((t, x) => t + x.actual, 0)), b = targetFor("all"), budget = b && revenue ? round2(revenue * b / 100) : null;
+      departments.push({ name: "Total payroll", total: true, actual, budget, variance: budget != null ? actual - budget : null, pct: revenue > 0 ? round1((actual / revenue) * 100) : null, budgetPct: b });
+    }
+  }
   const outlets = ((M.revenue && M.revenue.outlets) || []).map((x) => ({ name: x.name, actual: x.actual, budget: x.budget, variance: x.actual - x.budget, pctOfBudget: x.budget > 0 ? round1((x.actual / x.budget) * 100) : null }));
 
-  // ---- plain-English findings, strongest first ----
-  const insights = [];
+  // ---- findings in plain English, strongest first ----
+  const insights = [], low = label.toLowerCase();
   if (pct != null && budgetPct != null) {
-    insights.push({ tone: status === "ok" ? "good" : "bad", text: `Kitchen payroll is ${pct}% of F&B revenue against a ${budgetPct}% budget` + (mtd.kitchen.variance != null ? `: ${money0(Math.abs(mtd.kitchen.variance))} ${mtd.kitchen.variance <= 0 ? "under" : "over"}.` : ".") });
+    insights.push({ key: "headline", tone: status === "ok" ? "good" : "bad", text: `${label} is ${pct}% of revenue against a ${budgetPct}% budget` + (mtd.payroll.variance != null ? `, ${money0(Math.abs(mtd.payroll.variance))} ${mtd.payroll.variance <= 0 ? "under" : "over"}.` : ".") });
   }
   const withRev = days.filter((d) => d.revenue > 0);
   if (withRev.length >= 4) {
     const top = [...withRev].sort((a, b) => b.revenue - a.revenue)[0];
     const rest = withRev.filter((d) => d !== top);
-    const restRev = rest.reduce((t, d) => t + d.revenue, 0), restKit = rest.reduce((t, d) => t + d.kitchen, 0);
-    const avg = restRev / rest.length;
-    if (top.revenue > avg * 2 && restRev > 0) {
-      const without = round1((restKit / restRev) * 100);
-      insights.push({ tone: budgetPct != null && without > budgetPct ? "bad" : "info", key: "bigday", without, day: top.date,
-        text: `One day carries the month: ${top.label} took ${money0(top.revenue)}. Without it, kitchen payroll is ${without}% of revenue.` });
+    const restRev = rest.reduce((t, d) => t + d.revenue, 0), restPay = rest.reduce((t, d) => t + d.payroll, 0);
+    if (top.revenue > (restRev / rest.length) * 2 && restRev > 0) {
+      const without = round1((restPay / restRev) * 100);
+      insights.push({ key: "bigday", tone: budgetPct != null && without > budgetPct ? "bad" : "info", without, day: top.date,
+        text: `One day carries the period: ${top.label} took ${money0(top.revenue)}. Without it, ${low} is ${without}% of revenue.` });
     }
   }
-  if (budgetPct != null) {
-    const worst = days.filter((d) => d.pct != null && d.pct > budgetPct * 1.25).sort((a, b) => b.pct - a.pct).slice(0, 2);
-    if (worst.length) insights.push({ tone: "bad", text: `Heaviest ${worst.length === 1 ? "day" : "days"}: ` + worst.map((d) => `${d.label} at ${d.pct}% (${money0(d.kitchen)} payroll on ${money0(d.revenue)} revenue)`).join("; ") + "." });
+  if (budgetPct != null && withRev.length) {
+    const over = withRev.filter((d) => d.pct > budgetPct).length;
+    if (over * 2 >= withRev.length) insights.push({ key: "overdays", tone: "bad", count: over, of: withRev.length, text: `${over} of ${withRev.length} days ran above the ${budgetPct}% budget.` });
+    const worst = withRev.filter((d) => d.pct > budgetPct * 1.25).sort((a, b) => b.pct - a.pct).slice(0, 2);
+    if (worst.length) insights.push({ key: "worst", tone: "bad", text: `Heaviest ${worst.length === 1 ? "day" : "days"}: ` + worst.map((d) => `${d.label} at ${d.pct}% (${money0(d.payroll)} payroll on ${money0(d.revenue)} revenue)`).join("; ") + "." });
   }
   if (outlets.length) {
     const down = [...outlets].sort((a, b) => a.variance - b.variance)[0], up = [...outlets].sort((a, b) => b.variance - a.variance)[0];
-    if (down && down.variance < 0) insights.push({ tone: "bad", text: `${down.name} is ${money0(Math.abs(down.variance))} behind its revenue budget (${down.pctOfBudget}% of budget).` });
-  }
-  if (mtd.crewline && finSame > 0 && crewline > 0) {
-    const diff = mtd.crewline.variance, p = round1((diff / finSame) * 100);
-    const span = both.length === days.length ? "the same days" : `the ${both.length} days Crewline has a roster for`;
-    insights.push({ tone: "info", key: "crewline", text: `Crewline costs the roster at ${money0(crewline)} for ${span}; finance has ${money0(finSame)}. Crewline is ${money0(Math.abs(diff))} ${diff < 0 ? "lower" : "higher"} (${Math.abs(p)}%).` });
-  }
-  if (outlets.length) {
-    const down = [...outlets].sort((a, b) => a.variance - b.variance)[0], up = [...outlets].sort((a, b) => b.variance - a.variance)[0];
-    if (up && up.variance > 0 && up !== down) insights.push({ tone: "good", text: `${up.name} is ${money0(up.variance)} ahead of budget.` });
+    if (down && down.variance < 0) insights.push({ key: "down", tone: "bad", text: `${down.name} is ${money0(Math.abs(down.variance))} behind its revenue budget (${down.pctOfBudget}% of budget).` });
+    if (up && up.variance > 0 && up !== down) insights.push({ key: "up", tone: "good", text: `${up.name} is ${money0(up.variance)} ahead of its revenue budget.` });
   }
 
-  return { venue: (useFin && finance.venue) || venue || "", month, monthLabel: monthLabel(month), through, daysElapsed: dates.length, daysInMonth: monthDates(month).length,
+  const host = HOSTS.includes(o.host) ? o.host : focus === "kitchen" ? "chef" : focus === "service" ? "server" : "team";
+  return { venue: venue || (useFin && finance.venue) || "", month, monthLabel: monthLabel(month), through, daysElapsed: dates.length, daysInMonth: monthDates(month).length,
     rangeLabel: through ? `1–${Number(through.slice(8))} ${MON[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}` : monthLabel(month),
-    source: useFin ? { kind: "finance", fileName: finance.fileName || null, importedAt: finance.importedAt || null } : { kind: "crewline" },
-    oncost: { casualPct: Number(oncost.casualPct) || 0, permanentPct: Number(oncost.permanentPct) || 0 }, days, mtd, outlets, insights };
+    focus, payrollLabel: label, host, oncost: { casualPct: Number(oncost.casualPct) || 0, permanentPct: Number(oncost.permanentPct) || 0 }, days, mtd, departments, outlets, insights };
 }
 
-module.exports = { monthDates, monthLabel, classOf, collectMonth, withOncost, buildWorkbook, parseFinanceWorkbook, parseReportSheet, toStored, buildReport, addDays };
+module.exports = { monthDates, monthLabel, classOf, collectMonth, withOncost, buildWorkbook, parseFinanceWorkbook, parseReportSheet, toStored, buildReport, addDays, HOSTS };

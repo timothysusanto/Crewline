@@ -93,13 +93,14 @@
   </div>
 
   <div class="section">
-    <h2>Finance <span class="spacer"></span><span id="finMonth">—</span></h2>
+    <h2>Reports <span class="spacer"></span><span id="finMonth">—</span></h2>
     <div class="card fin">
       <a class="btn primary" id="reportBtn" href="#">▶ Play the report</a>
-      <a class="btn steel" id="finBtn" href="#">⬇ Excel for finance</a>
-      <button class="btn" id="finImportBtn" type="button">⬆ Load finance's file</button>
+      <a class="btn steel" id="pdfBtn" href="#">PDF report</a>
+      <a class="btn" id="finBtn" href="#">⬇ Excel: payroll by day</a>
+      <button class="btn" id="finImportBtn" type="button">⬆ Load finance workbook</button>
       <input type="file" id="finFile" hidden accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
-      <div class="help" id="finHelp">Excel for finance: payroll per day, Casual and FT&PT, ready to paste into their Input Sheet. Load finance's file: their F&B Daily Payroll workbook fills in actual revenue for you.</div>
+      <div class="help" id="finHelp">Month to date. The Excel file splits payroll per day into Casual and FT&PT. Loading your finance team's daily payroll workbook brings in actual revenue and budget.</div>
     </div>
     <div class="btn-row" style="margin-top:12px">
       <a class="btn steel" id="csvBtn" href="#">Pay-run CSV</a>
@@ -146,6 +147,7 @@ function render() {
   $("finMonth").textContent = new Date(finMonth + "-15T12:00:00Z").toLocaleDateString("en-AU", { month: "long", year: "numeric", timeZone: "UTC" });
   $("finBtn").href = CL.url(`/api/pay/finance.xlsx?month=${finMonth}`);
   $("reportBtn").href = CL.url(`/report?month=${finMonth}`);
+  $("pdfBtn").href = CL.url(`/report/print?month=${finMonth}`);
 
   // ----- budget card -----
   const hasRev = t.expectedRevenue != null && t.expectedRevenue > 0;
@@ -359,6 +361,7 @@ async function settingsSheet() {
       </div>
       <div class="help">On-costs = leave, payroll tax, workers' comp and super. Turn this on if your budget % is "in on-cost" (hotel payroll reports usually are). Shifts and the pay-run CSV always stay wages only.</div>
     </div>
+    <label class="field"><span class="lbl">Report presenter</span><select id="st-host">${[["auto", "Automatic"], ["chef", "Chef"], ["server", "Service"], ["team", "Team leader"], ["site", "Site supervisor"]].map(([v, l]) => `<option value="${v}" ${(s.reportHost || "auto") === v ? "selected" : ""}>${l}</option>`).join("")}</select><div class="help">The 3D character that presents the animated report.</div></label>
     <label class="field"><span class="lbl">152-hour cycle counts from (a week start)</span><input id="st-cycle" type="date" value="${s.cycleAnchor || ""}"><div class="help">Full-timers: 38 h × 4 weeks. Set this to the Monday your 4-week roster cycle began.</div></label>
     <label class="field"><span class="lbl">Public holidays (YYYY-MM-DD, one per line)</span><textarea id="st-ph" rows="4" style="width:100%;min-height:90px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--paper);font-family:var(--font-docket);font-size:15px">${(s.publicHolidays || []).join("\n")}</textarea><div class="help">Costed at 225% (casuals 250%) on the roster and the pay page.</div></label>
     <p class="err" id="st-err"></p>`;
@@ -373,6 +376,7 @@ async function settingsSheet() {
         cycleAnchor: el.querySelector("#st-cycle").value || undefined,
         oncost: { include: el.querySelector("#st-oc").checked, casualPct: Number(el.querySelector("#st-occ").value), permanentPct: Number(el.querySelector("#st-ocp").value) },
         publicHolidays: el.querySelector("#st-ph").value.split(/[\n,]/).map((x) => x.trim()).filter(Boolean),
+        reportHost: el.querySelector("#st-host").value,
       } });
       sh.close(); CL.toast("Settings saved"); load(weekStart);
     } catch (e) { el.querySelector("#st-err").textContent = e.message; }
@@ -393,8 +397,8 @@ $("finFile").onchange = async (e) => {
   $("finHelp").textContent = "Reading " + f.name + "…";
   try {
     const r = await CL.api(`/api/pay/finance/import?filename=${encodeURIComponent(f.name)}`, { method: "POST", raw: f });
-    $("finHelp").innerHTML = `<b>Loaded ${E(r.monthLabel)}, ${r.days} days.</b> F&B revenue $${Math.round(r.revenue).toLocaleString("en-AU")}, kitchen payroll $${Math.round(r.kitchen).toLocaleString("en-AU")} (in on-cost). Actual revenue is now on each day. <a href="${CL.url("/report?month=" + r.month)}">Play the report</a>`;
-    CL.toast("Finance file loaded");
+    $("finHelp").innerHTML = `<b>Loaded ${E(r.monthLabel)}, ${r.days} days.</b> Revenue $${Math.round(r.revenue).toLocaleString("en-AU")}. Actual revenue is now on each day. <a href="${CL.url("/report?month=" + r.month)}">Play the report</a>`;
+    CL.toast("Workbook loaded");
     load(weekStart);
   } catch (err) { $("finHelp").innerHTML = `<span class="err">${E(err.message || "Couldn't read that file.")}</span>`; }
 };

@@ -1,0 +1,26 @@
+{
+ "chef": {
+  "still": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-chef.png?v=1794419607&width=720",
+  "hello": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-chef-hello.mp4?v=1794419607",
+  "good": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-chef-good.mp4?v=1794419607",
+  "bad": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-chef-bad.mp4?v=1794419607"
+ },
+ "server": {
+  "still": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-server.png?v=1794419607&width=720",
+  "hello": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-server-hello.mp4?v=1794419607",
+  "good": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-server-good.mp4?v=1794419606",
+  "bad": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-server-bad.mp4?v=1794419608"
+ },
+ "team": {
+  "still": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-team.png?v=1794419607&width=720",
+  "hello": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-team-hello.mp4?v=1794419607",
+  "good": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-team-good.mp4?v=1794419607",
+  "bad": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-team-bad.mp4?v=1794419607"
+ },
+ "site": {
+  "still": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-site.png?v=1794419607&width=720",
+  "hello": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-site-hello.mp4?v=1794419607",
+  "good": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-site-good.mp4?v=1794419608",
+  "bad": "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-host-site-bad.mp4?v=1794419607"
+ }
+}

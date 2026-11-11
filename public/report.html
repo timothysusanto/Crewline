@@ -3,197 +3,250 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#14110F">
-<title>Report — Crewline</title>
+<meta name="theme-color" content="#FBF8F3">
+<title>Payroll report — Crewline</title>
 <link rel="stylesheet" href="/static/crewline.css">
 <style>
-  /* The report is a short film: five scenes on the pass at night. Numbers are drawn by the page, so they are exact. */
-  html, body { height: 100%; margin: 0; background: #14110F; }
-  body { color: #F6F1E8; font-family: var(--font-ui); overflow: hidden; -webkit-user-select: none; user-select: none; }
-  .stage { position: fixed; inset: 0; overflow: hidden; background: radial-gradient(120% 80% at 80% 0%, #3A2114 0%, #1B1512 45%, #100E0D 100%); }
-  .bg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0; transition: opacity 1.2s ease; }
-  .bg.on { opacity: .55; }
-  .veil { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(16,14,13,.72) 0%, rgba(16,14,13,.35) 38%, rgba(16,14,13,.9) 100%); }
-  .scene.plain ~ .veil { }
+  /* A five-scene payroll report presented by a 3D host. The page draws every number; the host only reacts to them. */
+  :root { --bg: #FBF8F3; --ink: #1A1A1A; --ink2: #5F5A53; --line: #E6E0D6; --card: #FFFFFF; --good: #2F7D4F; --warn: #C27C0E; --bad: #C8401A; --goodbg: #E8F3EC; --warnbg: #FBF1DC; --badbg: #FBE9E3; --host: clamp(150px, 42vw, 190px); }
+  html, body { height: 100%; margin: 0; background: var(--bg); }
+  body { color: var(--ink); font-family: var(--font-ui); overflow: hidden; -webkit-user-select: none; user-select: none; }
+  .stage { position: fixed; inset: 0; overflow: hidden; background: var(--bg); }
   .bars { position: absolute; top: calc(10px + env(safe-area-inset-top, 0px)); left: 14px; right: 14px; display: flex; gap: 5px; z-index: 5; }
-  .bars i { flex: 1; height: 3px; border-radius: 3px; background: rgba(246,241,232,.25); overflow: hidden; }
-  .bars i b { display: block; height: 100%; width: 0; background: #F6F1E8; }
-  .chrome { position: absolute; top: calc(22px + env(safe-area-inset-top, 0px)); left: 16px; right: 12px; display: flex; align-items: center; gap: 10px; z-index: 6; font-family: var(--font-docket); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: rgba(246,241,232,.75); }
+  .bars i { flex: 1; height: 3px; border-radius: 3px; background: rgba(26,26,26,.14); overflow: hidden; }
+  .bars i b { display: block; height: 100%; width: 0; background: var(--ember); }
+  .chrome { position: absolute; top: calc(20px + env(safe-area-inset-top, 0px)); left: 16px; right: 10px; display: flex; align-items: center; gap: 6px; z-index: 6; font-family: var(--font-docket); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); }
   .chrome .grow { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .chrome button, .chrome a { all: unset; cursor: pointer; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; font-size: 17px; color: #F6F1E8; }
+  .chrome button, .chrome a { all: unset; cursor: pointer; width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; font-size: 16px; color: var(--ink); }
   .chrome button:focus-visible, .chrome a:focus-visible, .end a:focus-visible, .end button:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
-  .scene { position: absolute; inset: 0; display: none; padding: calc(78px + env(safe-area-inset-top, 0px)) 22px calc(34px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; z-index: 2; }
+
+  .scene { position: absolute; inset: 0; display: none; padding: calc(72px + env(safe-area-inset-top, 0px)) 20px calc(var(--host) + 26px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; z-index: 2; }
+  .stage.no-host .scene { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
   .scene.on { display: flex; }
-  .wrap { width: 100%; max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; }
-  .kick { font-family: var(--font-docket); font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: #F2A27E; font-weight: 700; }
-  h1 { font-size: clamp(26px, 5.2vw, 44px); line-height: 1.08; letter-spacing: -.02em; margin: 10px 0 0; font-weight: 800; text-wrap: balance; }
-  h2 { font-size: clamp(22px, 4.2vw, 34px); line-height: 1.12; letter-spacing: -.02em; margin: 8px 0 18px; font-weight: 800; text-wrap: balance; }
-  .sub { color: rgba(246,241,232,.72); font-size: 15px; margin-top: 10px; line-height: 1.45; }
-  .hero-num { font-family: var(--font-docket); font-weight: 800; font-size: clamp(76px, 21vw, 168px); line-height: .95; letter-spacing: -.05em; margin-top: 22px; font-variant-numeric: tabular-nums; }
+  .wrap { width: 100%; max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; min-height: 0; overflow-y: auto; scrollbar-width: none; }
+  .wrap::-webkit-scrollbar { display: none; }
+  .kick { font-family: var(--font-docket); font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--ember-deep, #C13F0F); font-weight: 700; }
+  h1 { font-size: clamp(26px, 5vw, 42px); line-height: 1.08; letter-spacing: -.02em; margin: 8px 0 0; font-weight: 800; text-wrap: balance; }
+  h2 { font-size: clamp(21px, 3.6vw, 30px); line-height: 1.14; letter-spacing: -.02em; margin: 6px 0 16px; font-weight: 800; text-wrap: balance; }
+  .hero-num { font-family: var(--font-docket); font-weight: 800; font-size: clamp(72px, 19vw, 150px); line-height: .95; letter-spacing: -.05em; margin-top: 18px; font-variant-numeric: tabular-nums; }
   .hero-num small { font-size: .32em; letter-spacing: -.02em; margin-left: 4px; }
-  .hero-cap { font-size: clamp(16px, 2.6vw, 21px); color: rgba(246,241,232,.85); margin-top: 6px; }
-  .rp { display: inline-flex; align-items: center; gap: 8px; margin-top: 18px; padding: 8px 14px; border-radius: 999px; font-weight: 800; font-size: 15px; background: #EAF4EC; color: #166534; align-self: flex-start; }
-  .rp.warn { background: #FDF3E7; color: #B45309; } .rp.over { background: #FBEAE9; color: #B3261E; } .rp.none { background: rgba(246,241,232,.14); color: #F6F1E8; }
+  .hero-cap { font-size: clamp(15.5px, 2.2vw, 19px); color: var(--ink2); margin-top: 6px; }
+  .rp { display: inline-flex; align-items: center; gap: 8px; margin-top: 16px; padding: 8px 14px; border-radius: 999px; font-weight: 800; font-size: 15px; background: var(--goodbg); color: var(--good); align-self: flex-start; }
+  .rp.warn { background: var(--warnbg); color: var(--warn); } .rp.over { background: var(--badbg); color: var(--bad); } .rp.none { background: #EFEAE0; color: var(--ink2); }
   .rp i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+  .src { font-size: 12.5px; color: var(--ink2); margin-top: 14px; }
 
-  /* dockets: cream slips on the rail */
-  .dockets { display: grid; gap: 12px; }
-  .docket { background: #FFFDF9; color: #1A1A1A; border-radius: 12px; padding: 14px 16px 14px; box-shadow: 0 18px 40px -22px rgba(0,0,0,.8); }
-  .docket .t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-  .docket .t span { font-family: var(--font-docket); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: #6B655D; font-weight: 700; }
-  .docket .t em { font-style: normal; font-weight: 800; font-size: 13px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
-  .docket .t em.good { background: #EAF4EC; color: #166534; } .docket .t em.bad { background: #FBEAE9; color: #B3261E; } .docket .t em.flat { background: #F1ECE2; color: #6B655D; }
-  .docket .n { font-family: var(--font-docket); font-weight: 800; font-size: clamp(28px, 6.4vw, 40px); letter-spacing: -.03em; line-height: 1.1; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .track { position: relative; height: 12px; border-radius: 6px; background: #EFE8DB; margin-top: 10px; }
-  .track b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 6px; background: #3E4C59; transition: width 1.3s cubic-bezier(.2,.8,.2,1); }
-  .track b.bad { background: #B3261E; } .track b.good { background: #166534; }
-  .track u { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #1A1A1A; }
-  .docket .f { display: flex; justify-content: space-between; font-size: 12.5px; color: #6B655D; margin-top: 7px; font-family: var(--font-docket); }
+  .cards { display: grid; gap: 10px; }
+  .cardx { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 13px 15px; box-shadow: 0 10px 24px -20px rgba(26,26,26,.35); }
+  .cardx .t { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+  .cardx .t span { font-family: var(--font-docket); font-size: 11.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); font-weight: 700; }
+  .cardx .t em { font-style: normal; font-weight: 800; font-size: 13px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  em.good { background: var(--goodbg); color: var(--good); } em.bad { background: var(--badbg); color: var(--bad); } em.flat { background: #EFEAE0; color: var(--ink2); }
+  .cardx .n { font-family: var(--font-docket); font-weight: 800; font-size: clamp(26px, 5.6vw, 36px); letter-spacing: -.03em; line-height: 1.1; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .track { position: relative; height: 10px; border-radius: 5px; background: #EFEAE0; margin-top: 9px; }
+  .track b { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 5px; background: var(--good); transition: width 1.3s cubic-bezier(.2,.8,.2,1); }
+  .track b.bad { background: var(--bad); }
+  .track u { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--ink); }
+  .cardx .f { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink2); margin-top: 6px; font-family: var(--font-docket); }
 
-  /* day chart */
-  .chart { position: relative; height: clamp(190px, 38vh, 330px); display: flex; align-items: flex-end; gap: clamp(2px, 1vw, 8px); padding: 26px 0 30px; }
+  .chart { position: relative; height: clamp(170px, 30vh, 300px); display: flex; align-items: flex-end; gap: clamp(2px, 1vw, 8px); padding: 24px 0 30px; flex: none; }
   .chart .col { flex: 1; height: 100%; position: relative; display: flex; align-items: flex-end; justify-content: center; min-width: 0; }
-  .chart .col b { display: block; width: 100%; max-width: 46px; height: 0; border-radius: 5px 5px 0 0; background: #5B8C6B; transition: height 1s cubic-bezier(.2,.8,.2,1); }
-  .chart .col.warn b { background: #E0A12E; } .chart .col.over b { background: #E8541F; }
-  .chart .col .v { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--font-docket); font-size: clamp(9.5px, 2.3vw, 12.5px); font-weight: 700; white-space: nowrap; opacity: 0; transition: opacity .5s ease .9s, bottom 1s cubic-bezier(.2,.8,.2,1); bottom: 0; padding-bottom: 4px; }
-  .chart .col .d { position: absolute; bottom: -26px; left: 50%; transform: translateX(-50%); font-family: var(--font-docket); font-size: clamp(9px, 2.2vw, 11.5px); color: rgba(246,241,232,.7); text-align: center; line-height: 1.15; white-space: nowrap; }
-  .chart .col .d small { display: block; font-size: .85em; opacity: .75; }
-  .chart .line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed #F6F1E8; opacity: 0; transition: opacity .6s ease .4s; z-index: 2; pointer-events: none; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: rgba(246,241,232,.75); margin-top: 6px; }
+  .chart .col b { display: block; width: 100%; max-width: 44px; height: 0; border-radius: 5px 5px 0 0; background: var(--good); transition: height 1s cubic-bezier(.2,.8,.2,1); }
+  .chart .col.warn b { background: #E0A12E; } .chart .col.over b { background: #E0551F; }
+  .chart .col .v { position: absolute; left: 50%; transform: translateX(-50%); font-family: var(--font-docket); font-size: clamp(9.5px, 2.2vw, 12px); font-weight: 700; white-space: nowrap; opacity: 0; transition: opacity .5s ease .9s, bottom 1s cubic-bezier(.2,.8,.2,1); bottom: 0; padding-bottom: 4px; }
+  .chart .col .d { position: absolute; bottom: -26px; left: 50%; transform: translateX(-50%); font-family: var(--font-docket); font-size: clamp(9px, 2.1vw, 11.5px); color: var(--ink2); text-align: center; line-height: 1.15; white-space: nowrap; }
+  .chart .col .d small { display: block; font-size: .85em; opacity: .8; }
+  .chart .line { position: absolute; left: 0; right: 0; height: 0; border-top: 2px dashed var(--ink); opacity: 0; transition: opacity .6s ease .4s; z-index: 2; pointer-events: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 5px 14px; font-size: 12.5px; color: var(--ink2); margin-top: 4px; }
   .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
-  .legend i.dash { width: 18px; height: 0; border-top: 2px dashed #F6F1E8; border-radius: 0; vertical-align: 3px; }
-  .note { margin-top: 16px; padding: 12px 14px; border-left: 3px solid var(--ember); background: rgba(246,241,232,.08); border-radius: 0 10px 10px 0; font-size: clamp(14.5px, 2.4vw, 17px); line-height: 1.45; }
+  .legend i.dash { width: 18px; height: 0; border-top: 2px dashed var(--ink); border-radius: 0; vertical-align: 3px; }
 
-  /* outlets */
-  .outs { display: grid; gap: 14px; }
+  .outs { display: grid; gap: 12px; }
   .out .r1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-  .out .nm { font-weight: 800; font-size: clamp(15.5px, 2.8vw, 19px); }
-  .out .vv { font-family: var(--font-docket); font-weight: 800; font-size: clamp(15.5px, 2.8vw, 19px); white-space: nowrap; }
-  .out .vv.bad { color: #FF9A7B; } .out .vv.good { color: #8FD3A4; }
-  .out .mid { position: relative; height: 14px; margin-top: 6px; background: rgba(246,241,232,.1); border-radius: 7px; }
-  .out .mid::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: rgba(246,241,232,.7); }
+  .out .nm { font-weight: 800; font-size: clamp(15px, 2.4vw, 18px); }
+  .out .vv { font-family: var(--font-docket); font-weight: 800; font-size: clamp(15px, 2.4vw, 18px); white-space: nowrap; }
+  .out .vv.bad { color: var(--bad); } .out .vv.good { color: var(--good); }
+  .out .mid { position: relative; height: 12px; margin-top: 5px; background: #EFEAE0; border-radius: 6px; }
+  .out .mid::after { content: ""; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--ink); }
   .out .mid b { position: absolute; top: 0; bottom: 0; width: 0; transition: width 1.2s cubic-bezier(.2,.8,.2,1); }
-  .out .mid b.bad { right: 50%; background: #E8541F; border-radius: 7px 0 0 7px; } .out .mid b.good { left: 50%; background: #5B8C6B; border-radius: 0 7px 7px 0; }
-  .out .r2 { font-family: var(--font-docket); font-size: 12px; color: rgba(246,241,232,.65); margin-top: 5px; }
+  .out .mid b.bad { right: 50%; background: #E0551F; border-radius: 6px 0 0 6px; } .out .mid b.good { left: 50%; background: var(--good); border-radius: 0 6px 6px 0; }
+  .out .r2 { font-family: var(--font-docket); font-size: 12px; color: var(--ink2); margin-top: 4px; }
 
-  /* findings */
-  .finds { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
-  .finds li { display: grid; grid-template-columns: 26px 1fr; gap: 10px; align-items: start; background: #FFFDF9; color: #1A1A1A; border-radius: 12px; padding: 12px 14px; font-size: clamp(14.5px, 2.5vw, 17px); line-height: 1.4; }
-  .finds li i { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: 13px; color: #fff; background: #3E4C59; margin-top: 1px; }
-  .finds li.good i { background: #166534; } .finds li.bad i { background: #C13F0F; }
-  .end { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
-  .end a, .end button { all: unset; cursor: pointer; box-sizing: border-box; min-height: 46px; padding: 0 18px; border-radius: 12px; display: inline-flex; align-items: center; font-weight: 800; font-size: 15px; background: rgba(246,241,232,.14); color: #F6F1E8; }
+  .finds { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+  .finds li { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 13px; font-size: clamp(14px, 2.1vw, 16px); line-height: 1.4; }
+  .finds li i { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: 12px; color: #fff; background: var(--steel, #3E4C59); margin-top: 1px; }
+  .finds li.good i { background: var(--good); } .finds li.bad i { background: var(--bad); }
+  .end { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .end a, .end button { all: unset; cursor: pointer; box-sizing: border-box; min-height: 44px; padding: 0 16px; border-radius: 12px; display: inline-flex; align-items: center; font-weight: 800; font-size: 14.5px; background: #EFEAE0; color: var(--ink); }
   .end .go { background: var(--ember); color: #fff; }
-  .src { font-family: var(--font-docket); font-size: 11.5px; color: rgba(246,241,232,.55); margin-top: 16px; line-height: 1.5; }
 
-  /* entrance: each scene's pieces rise in turn */
+  /* the 3D host: clips on a white ground, multiplied onto the page so only the character shows.
+     The blend sits on .host itself: it is a stacking context, so blending its children would have nothing behind them. */
+  .host { position: absolute; right: 8px; bottom: calc(6px + env(safe-area-inset-bottom, 0px)); width: var(--host); height: var(--host); z-index: 4; pointer-events: none; opacity: 0; transform: translateY(24px); transition: opacity .6s ease, transform .6s cubic-bezier(.2,.8,.2,1); mix-blend-mode: multiply; }
+  .host.in { opacity: 1; transform: none; }
+  .host video, .host img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: brightness(1.05) contrast(1.05); opacity: 0; transition: opacity .35s ease; }
+  .host .show { opacity: 1; }
+  .host.debug { outline: 2px dashed #B9B2A5; border-radius: 16px; }
+  .host.debug::after { content: "3D host"; position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--font-docket); color: #8C8578; }
+  .say { position: absolute; right: calc(var(--host) + 4px); bottom: calc(var(--host) * .42 + env(safe-area-inset-bottom, 0px)); max-width: min(300px, calc(100% - var(--host) - 28px)); z-index: 4; background: var(--ink); color: #fff; border-radius: 16px 16px 4px 16px; padding: 10px 14px; font-weight: 700; font-size: 15px; line-height: 1.3; opacity: 0; transform: translateY(8px) scale(.96); transform-origin: 100% 100%; transition: opacity .35s ease, transform .35s cubic-bezier(.2,.9,.3,1.2); pointer-events: none; }
+  .say.in { opacity: 1; transform: none; }
+  .stage.no-host .host, .stage.no-host .say { display: none; }
+
   .scene.on .rise { animation: rise .7s cubic-bezier(.2,.8,.2,1) both; }
-  .scene.on .rise:nth-child(2) { animation-delay: .12s; } .scene.on .rise:nth-child(3) { animation-delay: .24s; } .scene.on .rise:nth-child(4) { animation-delay: .36s; }
-  .scene.on .rise:nth-child(5) { animation-delay: .48s; } .scene.on .rise:nth-child(6) { animation-delay: .6s; } .scene.on .rise:nth-child(7) { animation-delay: .72s; }
-  @keyframes rise { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
-  .tap { position: absolute; top: 70px; bottom: 0; width: 28%; z-index: 3; }
-  .tap.l { left: 0; } .tap.r { right: 0; width: 34%; }
+  .scene.on .rise:nth-child(2) { animation-delay: .1s; } .scene.on .rise:nth-child(3) { animation-delay: .2s; } .scene.on .rise:nth-child(4) { animation-delay: .3s; }
+  .scene.on .rise:nth-child(5) { animation-delay: .4s; } .scene.on .rise:nth-child(6) { animation-delay: .5s; } .scene.on .rise:nth-child(7) { animation-delay: .6s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+  .tap { position: absolute; top: 66px; bottom: 0; width: 26%; z-index: 3; }
+  .tap.l { left: 0; } .tap.r { right: 0; width: 30%; }
   .msg { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 30px; z-index: 4; font-size: 17px; line-height: 1.5; }
-  .msg a { color: #F2A27E; font-weight: 800; }
-  @media (min-width: 760px) { .dockets.three { grid-template-columns: repeat(3, 1fr); } .scene { padding-left: 40px; padding-right: 40px; } }
-  @media (max-height: 640px) { .hero-num { margin-top: 10px; } h2 { margin-bottom: 10px; } .docket { padding: 10px 14px; } }
-  @media (prefers-reduced-motion: reduce) { .scene.on .rise { animation: none; } .track b, .chart .col b, .out .mid b, .chart .col .v, .chart .line { transition: none; } }
+  .msg a { color: var(--ember-deep, #C13F0F); font-weight: 800; }
+
+  @media (min-width: 900px) {
+    :root { --host: clamp(300px, 34vw, 460px); }
+    .scene { padding: 84px calc(var(--host) + 56px) 40px 64px; }
+    .stage.no-host .scene { padding-right: 64px; }
+    .wrap { margin: 0; max-width: 680px; }
+    .cards.three { grid-template-columns: repeat(3, 1fr); }
+    .host { right: 40px; bottom: 30px; }
+    .say { right: calc(var(--host) * .3 + 40px); bottom: calc(var(--host) + 46px); font-size: 17px; max-width: 300px; border-radius: 16px 16px 4px 16px; }
+  }
+  @media (max-height: 700px) and (max-width: 899px) { :root { --host: 130px; } h2 { margin-bottom: 10px; } .cardx { padding: 9px 13px; } .hero-num { margin-top: 8px; } }
+  @media (prefers-reduced-motion: reduce) { .scene.on .rise { animation: none; } .track b, .chart .col b, .out .mid b, .chart .col .v, .chart .line, .host, .say { transition: none; } }
 </style>
 </head>
 <body>
 <div class="stage cl-app" id="stage">
-  <video class="bg" id="bgVideo" muted loop playsinline preload="auto" aria-hidden="true"></video>
-  <img class="bg" id="bgImg" alt="" aria-hidden="true">
-  <div class="veil"></div>
   <div class="bars" id="bars"></div>
-  <div class="chrome"><span class="grow" id="crumb">Crewline report</span><button id="pauseBtn" aria-label="Pause">❚❚</button><a id="closeBtn" href="/pay" aria-label="Back to Pay">✕</a></div>
+  <div class="chrome"><span class="grow" id="crumb">Payroll report</span><button id="pauseBtn" aria-label="Pause">❚❚</button><a id="closeBtn" href="/pay" aria-label="Close">✕</a></div>
   <div id="scenes"></div>
+  <div class="say" id="say" role="status"></div>
+  <div class="host" id="host" aria-hidden="true"></div>
   <div class="tap l" id="tapL" aria-hidden="true"></div><div class="tap r" id="tapR" aria-hidden="true"></div>
   <div class="msg" id="msg">Loading the report…</div>
 </div>
 <script src="/static/crewline.js"></script>
 <script>
 "use strict";
-/* Scene pictures: made with Higgsfield, kept as files so the report always opens the same. Numbers are never part of a picture. */
-const MEDIA = { video: "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-report-pass.mp4?v=1794377636", pass: "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-report-pass.png?v=1794377636&width=1344", dockets: "https://cdn.shopify.com/s/files/1/0783/9557/2421/files/crewline-report-dockets.png?v=1794377636&width=1344" };
 const SCENE_MS = 7000;
 const $ = (id) => document.getElementById(id), E = CL.esc;
 const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const q = new URLSearchParams(location.search);
+const still = reduced || q.get("still");
 const money = (n) => (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-AU");
 const signed = (n) => (n > 0 ? "+" : n < 0 ? "-" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-AU");
-let R = null, scenes = [], at = 0, paused = false, started = 0, elapsed = 0, raf = 0;
+let R = null, scenes = [], at = 0, paused = false, started = 0, elapsed = 0, hostOk = false;
 
 function countUp(el, to, fmt, ms = 1400) {
-  if (reduced || q.get("still")) { el.textContent = fmt(to); return; }
+  if (still) { el.textContent = fmt(to); return; }
   const t0 = performance.now();
   const step = (t) => { const k = Math.min(1, (t - t0) / ms), e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(to * e); if (k < 1) requestAnimationFrame(step); };
   requestAnimationFrame(step);
 }
-
-function docket(title, a, budget, lowerIsBetter) {
+function card(title, a, budget, lowerIsBetter) {
   if (a == null) return "";
   const has = budget != null && budget > 0, v = has ? a - budget : 0;
   const good = lowerIsBetter ? v <= 0 : v >= 0;
   const max = has ? Math.max(a, budget) * 1.08 : a || 1;
   const word = lowerIsBetter ? (v <= 0 ? "under" : "over") : (v >= 0 ? "ahead" : "behind");
-  return `<div class="docket rise"><div class="t"><span>${E(title)}</span>${has ? `<em class="${Math.abs(v) < 1 ? "flat" : good ? "good" : "bad"}">${money(Math.abs(v))} ${word}</em>` : ""}</div>
+  return `<div class="cardx rise"><div class="t"><span>${E(title)}</span>${has ? `<em class="${Math.abs(v) < 1 ? "flat" : good ? "good" : "bad"}">${money(Math.abs(v))} ${word}</em>` : ""}</div>
     <div class="n" data-count="${a}">$0</div>
-    ${has ? `<div class="track"><b class="${good ? "good" : "bad"}" data-w="${(a / max) * 100}"></b><u style="left:${(budget / max) * 100}%"></u></div><div class="f"><span>Actual</span><span>Budget ${money(budget)}</span></div>` : ""}</div>`;
+    ${has ? `<div class="track"><b class="${good ? "" : "bad"}" data-w="${(a / max) * 100}"></b><u style="left:${(budget / max) * 100}%"></u></div><div class="f"><span>Actual</span><span>Budget ${money(budget)}</span></div>` : ""}</div>`;
 }
-
 function moneyHead(m) {
-  const rv = m.revenue.variance, kv = m.kitchen.variance;
-  if (rv == null || kv == null) return "Revenue against payroll.";
-  if (rv < 0) return kv <= 0 ? "Revenue is behind. Payroll is under too." : "Revenue is behind and payroll is over.";
-  return kv <= 0 ? "Revenue is ahead and payroll is under." : "Revenue is ahead. Payroll is over.";
+  const rv = m.revenue.variance, pv = m.payroll.variance;
+  if (rv == null || pv == null) return "Revenue and payroll so far.";
+  if (rv < 0) return pv <= 0 ? "Revenue is behind budget. Payroll is under too." : "Revenue is behind budget and payroll is over.";
+  return pv <= 0 ? "Revenue is ahead of budget and payroll is under." : "Revenue is ahead of budget. Payroll is over.";
 }
+const find = (k) => R.insights.find((i) => i.key === k);
+
 function build() {
-  const m = R.mtd, k = m.kitchen, list = [];
-  const src = R.source.kind === "finance" ? "Figures: finance's F&B Daily Payroll workbook, in on-cost." : `Figures: Crewline roster and clock-ins, in on-cost (casual +${R.oncost.casualPct}%, FT&PT +${R.oncost.permanentPct}%).`;
+  const m = R.mtd, p = m.payroll, list = [];
+  const total = R.departments.find((d) => d.total && R.focus !== "all");
   // 1. cover
-  list.push({ bg: "video", html: `<div class="wrap">
-    <div class="kick rise">Kitchen payroll · ${E(R.venue || "your venue")}</div>
+  list.push({ mood: "hello", say: "Here's your payroll report.", html: `<div class="wrap">
+    <div class="kick rise">Payroll report${R.venue ? " · " + E(R.venue) : ""}</div>
     <h1 class="rise">${E(R.rangeLabel)}</h1>
-    <div class="hero-num rise"><span data-count="${k.pct == null ? 0 : k.pct}" data-fmt="pct">0.0</span><small>%</small></div>
-    <div class="hero-cap rise">of F&amp;B revenue went on kitchen payroll</div>
-    <div class="rp rise ${k.status}"><i></i>${k.budgetPct != null ? `Budget ${k.budgetPct}% · ${k.status === "ok" ? "on budget" : k.status === "warn" ? "just over" : k.status === "over" ? "over budget" : ""}` : "No budget % set"}</div>
-    <div class="src rise">${E(src)}</div></div>` });
-  // 2. the money
-  const cards = [docket("F&B revenue", m.revenue.actual, m.revenue.budget, false), docket("Kitchen payroll", k.actual, k.budget, true), m.total ? docket("All F&B payroll", m.total.actual, m.total.budget, true) : ""].filter(Boolean);
-  list.push({ html: `<div class="wrap"><div class="kick rise">The money</div><h2 class="rise">${E(moneyHead(m))}</h2>
-    <div class="dockets ${cards.length >= 3 ? "three" : ""}">${cards.join("")}</div></div>` });
+    <div class="hero-num rise"><span data-count="${p.pct == null ? 0 : p.pct}" data-fmt="pct">0.0</span><small>%</small></div>
+    <div class="hero-cap rise">${E(p.label)} as a share of revenue</div>
+    <div class="rp rise ${p.status}"><i></i>${p.budgetPct != null ? `Budget ${p.budgetPct}% · ${p.status === "ok" ? "on budget" : p.status === "warn" ? "just over" : "over budget"}` : "No budget % set"}</div>
+    <div class="src rise">Day ${R.daysElapsed} of ${R.daysInMonth}. Payroll includes on-costs.</div></div>` });
+  // 2. revenue and payroll
+  const cards = [card("Revenue", m.revenue.actual, m.revenue.budget, false), card(p.label, p.actual, p.budget, true), total ? card(total.name, total.actual, total.budget, true) : ""].filter(Boolean);
+  list.push({ mood: p.variance == null ? "hello" : p.variance <= 0 ? "good" : "bad", say: p.variance == null ? "Revenue and payroll so far." : `Payroll is ${money(Math.abs(p.variance))} ${p.variance <= 0 ? "under" : "over"} budget.`,
+    html: `<div class="wrap"><div class="kick rise">Revenue and payroll</div><h2 class="rise">${E(moneyHead(m))}</h2><div class="cards ${cards.length >= 3 ? "three" : ""}">${cards.join("")}</div></div>` });
   // 3. day by day
   const withPct = R.days.filter((d) => d.pct != null);
   if (withPct.length) {
-    const max = Math.max(...withPct.map((d) => d.pct), k.budgetPct || 0) * 1.12;
-    const dense = R.days.length > 16;
+    const max = Math.max(...withPct.map((d) => d.pct), p.budgetPct || 0) * 1.12, dense = R.days.length > 16;
     const cols = R.days.map((d) => {
-      const cls = d.pct == null || k.budgetPct == null ? "" : d.pct <= k.budgetPct ? "" : d.pct <= k.budgetPct * 1.25 ? "warn" : "over";
+      const cls = d.pct == null || p.budgetPct == null ? "" : d.pct <= p.budgetPct ? "" : d.pct <= p.budgetPct * 1.25 ? "warn" : "over";
       const h = d.pct == null ? 0 : (d.pct / max) * 100;
       return `<div class="col ${cls}"><span class="v" data-b="${h}">${d.pct == null ? "" : dense && cls !== "over" ? "" : Math.round(d.pct) + "%"}</span><b data-h="${h}"></b><span class="d">${dense ? "" : `<small>${E(d.label.slice(0, 3))}</small>`}${Number(d.date.slice(8))}</span></div>`;
     }).join("");
-    const big = R.insights.find((i) => i.key === "bigday");
-    const worst = R.insights.find((i) => /^Heaviest/.test(i.text));
-    list.push({ html: `<div class="wrap"><div class="kick rise">Day by day</div><h2 class="rise">Kitchen payroll as a % of each day's revenue.</h2>
-      <div class="chart rise" id="chart">${k.budgetPct != null ? `<div class="line" data-y="${(k.budgetPct / max) * 100}"></div>` : ""}${cols}</div>
-      <div class="legend rise">${k.budgetPct != null ? `<span><i class="dash"></i>Budget ${k.budgetPct}%</span>` : ""}<span><i style="background:#5B8C6B"></i>On budget</span><span><i style="background:#E0A12E"></i>Up to a quarter over</span><span><i style="background:#E8541F"></i>More than a quarter over</span></div>
-      ${big || worst ? `<div class="note rise">${E((big || worst).text)}</div>` : ""}</div>` });
+    const od = find("overdays");
+    list.push({ mood: od ? "bad" : "good", say: od ? `${od.count} of ${od.of} days ran over budget.` : "Most days ran on budget.",
+      html: `<div class="wrap"><div class="kick rise">Day by day</div><h2 class="rise">${E(p.label)} as a % of each day's revenue.</h2>
+      <div class="chart rise">${p.budgetPct != null ? `<div class="line" data-y="${(p.budgetPct / max) * 100}"></div>` : ""}${cols}</div>
+      <div class="legend rise">${p.budgetPct != null ? `<span><i class="dash"></i>Budget ${p.budgetPct}%</span>` : ""}<span><i style="background:var(--good)"></i>On budget</span><span><i style="background:#E0A12E"></i>Up to 25% over</span><span><i style="background:#E0551F"></i>More than 25% over</span></div></div>` });
   }
-  // 4. outlets
+  // 4. revenue by outlet
   if (R.outlets.length) {
     const span = Math.max(...R.outlets.map((o) => Math.abs(o.variance))) || 1;
-    list.push({ html: `<div class="wrap"><div class="kick rise">Where the revenue landed</div><h2 class="rise">Each outlet against its budget.</h2>
+    const down = [...R.outlets].sort((a, b) => a.variance - b.variance)[0];
+    list.push({ mood: "hello", say: down.variance < 0 ? `${down.name} is ${money(Math.abs(down.variance))} behind.` : "Every outlet is on or ahead of budget.",
+      html: `<div class="wrap"><div class="kick rise">Revenue by outlet</div><h2 class="rise">Each outlet against its budget.</h2>
       <div class="outs">${R.outlets.map((o) => `<div class="out rise"><div class="r1"><span class="nm">${E(o.name)}</span><span class="vv ${o.variance < 0 ? "bad" : "good"}">${signed(o.variance)}</span></div>
         <div class="mid"><b class="${o.variance < 0 ? "bad" : "good"}" data-w="${(Math.abs(o.variance) / span) * 50}"></b></div>
         <div class="r2">${money(o.actual)} of ${money(o.budget)} budget${o.pctOfBudget != null ? ` · ${o.pctOfBudget}%` : ""}</div></div>`).join("")}</div></div>` });
   }
-  // 5. what it means
-  const finds = R.insights.slice(0, 5);
-  list.push({ bg: "dockets", html: `<div class="wrap"><div class="kick rise">What it means</div><h2 class="rise">${finds.length ? "The short version." : "Nothing to flag yet."}</h2>
+  // 5. key findings
+  const finds = R.insights.slice(0, 5), big = find("bigday");
+  const calm = p.status === "ok" && !(big && big.tone === "bad");
+  list.push({ mood: p.status === "none" ? "hello" : calm ? "good" : "bad", say: p.status === "none" ? "That's the period so far." : calm ? "On budget so far." : p.status === "ok" ? "On budget, but look closer." : "Over budget. Start with the red days.",
+    html: `<div class="wrap"><div class="kick rise">Key findings</div><h2 class="rise">${finds.length ? "The short version." : "Nothing to flag yet."}</h2>
     <ul class="finds">${finds.map((i, n) => `<li class="rise ${i.tone}"><i>${n + 1}</i><span>${E(i.text)}</span></li>`).join("")}</ul>
-    <div class="end rise"><button class="go" id="replay">↻ Play again</button><a href="${CL.url("/api/pay/finance.xlsx?month=" + R.month)}">⬇ Excel for finance</a><a href="${CL.url("/pay")}">Back to Pay</a></div></div>` });
+    <div class="end rise"><button class="go" id="replay">↻ Play again</button><a href="${CL.url("/report/print?month=" + R.month)}">PDF report</a><a href="${CL.url("/pay")}">Close</a></div></div>` });
   return list;
+}
+
+/* ---------- the host ---------- */
+function mountHost(set) {
+  const h = $("host");
+  if (q.get("hostdebug")) { h.classList.add("debug", "in"); hostOk = true; return; }
+  if (!set || !set.still) { $("stage").classList.add("no-host"); return; }
+  const img = new Image();
+  img.onload = () => {
+    hostOk = true; img.dataset.mood = "still"; img.alt = ""; h.appendChild(img); img.classList.add("show"); h.classList.add("in");
+    if (!reduced) for (const mood of ["hello", "good", "bad"]) {
+      if (!set[mood]) continue;
+      const v = document.createElement("video");
+      v.muted = true; v.loop = true; v.playsInline = true; v.preload = "none"; v.dataset.mood = mood; v.setAttribute("muted", ""); v.setAttribute("playsinline", "");
+      v.addEventListener("canplay", () => { v.dataset.ok = "1"; if (scenes[at] && scenes[at].mood === mood) setMood(mood); }, { once: true });
+      h.appendChild(v);
+    }
+    // Fetch the clip this scene needs first, then the rest one at a time (each is about 3 MB).
+    const order = [...new Set([scenes[at] && scenes[at].mood, ...scenes.map((x) => x.mood)])].filter((k) => set[k]);
+    order.forEach((mood, n) => setTimeout(() => { const v = h.querySelector(`video[data-mood="${mood}"]`); if (v && !v.src) { v.src = set[mood]; v.load(); } }, n * 2500));
+    if (scenes.length) speak(scenes[at]);
+  };
+  img.onerror = () => { $("stage").classList.add("no-host"); };
+  img.src = set.still;
+}
+function setMood(mood) {
+  const h = $("host"); let shown = false;
+  h.querySelectorAll("video").forEach((v) => {
+    const on = v.dataset.mood === mood && v.dataset.ok === "1";
+    v.classList.toggle("show", on);
+    if (on) { shown = true; try { v.currentTime = 0; } catch (e) {} if (!paused) v.play().catch(() => {}); } else v.pause();
+  });
+  const img = h.querySelector("img"); if (img) img.classList.toggle("show", !shown);
+}
+function speak(s) {
+  const b = $("say"); b.classList.remove("in");
+  if (!hostOk || !s.say) return;
+  setMood(s.mood);
+  setTimeout(() => { b.textContent = s.say; b.classList.add("in"); }, still ? 0 : 500);
 }
 
 function show(i) {
@@ -201,16 +254,12 @@ function show(i) {
   document.querySelectorAll(".scene").forEach((el, n) => el.classList.toggle("on", n === at));
   document.querySelectorAll("#bars i b").forEach((b, n) => { b.style.width = n < at ? "100%" : "0"; });
   const s = scenes[at], el = document.querySelectorAll(".scene")[at];
-  $("bgVideo").classList.toggle("on", s.bg === "video" && $("bgVideo").dataset.ok === "1");
-  $("bgImg").classList.toggle("on", (s.bg === "video" && $("bgVideo").dataset.ok !== "1" && $("bgImg").dataset.pass === "1") || (s.bg === "dockets" && $("bgImg").dataset.dockets === "1"));
-  if (s.bg === "dockets" && $("bgImg").dataset.dockets === "1") $("bgImg").src = MEDIA.dockets; else if ($("bgImg").dataset.pass === "1") $("bgImg").src = MEDIA.pass;
-  // run this scene's animations from zero
+  speak(s);
   el.querySelectorAll("[data-count]").forEach((n) => countUp(n, Number(n.dataset.count), n.dataset.fmt === "pct" ? (v) => v.toFixed(1) : (v) => money(v)));
-  const still = reduced || q.get("still");
   el.querySelectorAll("[data-w]").forEach((b) => { b.style.width = "0"; });
   el.querySelectorAll("[data-h]").forEach((b) => { b.style.height = "0"; });
   el.querySelectorAll(".v").forEach((v) => { v.style.opacity = 0; v.style.bottom = "0"; });
-  el.querySelectorAll(".line").forEach((l) => { l.style.opacity = 0; l.style.bottom = `calc(30px + (100% - 56px) * ${Number(l.dataset.y) / 100})`; });
+  el.querySelectorAll(".line").forEach((l) => { l.style.opacity = 0; l.style.bottom = `calc(30px + (100% - 54px) * ${Number(l.dataset.y) / 100})`; });
   const go = () => {
     el.querySelectorAll("[data-w]").forEach((b) => { b.style.width = b.dataset.w + "%"; });
     el.querySelectorAll("[data-h]").forEach((b, n) => { b.style.transitionDelay = still ? "0s" : (n * 0.05) + "s"; b.style.height = b.dataset.h + "%"; });
@@ -227,34 +276,34 @@ function tick(t) {
     const b = document.querySelectorAll("#bars i b")[at]; if (b) b.style.width = (p * 100) + "%";
     if (p >= 1) { if (at < scenes.length - 1) show(at + 1); else { paused = true; setPause(); } }
   }
-  raf = requestAnimationFrame(tick);
+  requestAnimationFrame(tick);
 }
-function setPause() { $("pauseBtn").textContent = paused ? "▶" : "❚❚"; $("pauseBtn").setAttribute("aria-label", paused ? "Play" : "Pause"); if (paused) elapsed += performance.now() - started; else started = performance.now(); }
-$("pauseBtn").onclick = () => { paused = !paused; if (!paused && at === scenes.length - 1 && elapsed >= SCENE_MS) { show(0); } setPause(); };
+function setPause() {
+  $("pauseBtn").textContent = paused ? "▶" : "❚❚"; $("pauseBtn").setAttribute("aria-label", paused ? "Play" : "Pause");
+  if (paused) elapsed += performance.now() - started; else started = performance.now();
+  const v = $("host").querySelector("video.show"); if (v) { if (paused) v.pause(); else v.play().catch(() => {}); }
+}
+$("pauseBtn").onclick = () => { paused = !paused; if (!paused && at === scenes.length - 1 && elapsed >= SCENE_MS) show(0); setPause(); };
 $("tapR").onclick = () => { if (at < scenes.length - 1) show(at + 1); };
 $("tapL").onclick = () => { show(at - 1); };
 addEventListener("keydown", (e) => { if (e.key === "ArrowRight" || e.key === " ") { e.preventDefault(); $("tapR").onclick(); } if (e.key === "ArrowLeft") $("tapL").onclick(); });
 
-function media() {
-  const ok = (u) => u && !u.startsWith("__");
-  if (ok(MEDIA.pass)) { const i = new Image(); i.onload = () => { $("bgImg").dataset.pass = "1"; if (scenes.length) show(at); }; i.src = MEDIA.pass; }
-  if (ok(MEDIA.dockets)) { const i = new Image(); i.onload = () => { $("bgImg").dataset.dockets = "1"; }; i.src = MEDIA.dockets; }
-  if (ok(MEDIA.video) && !reduced) { const v = $("bgVideo"); v.oncanplay = () => { v.dataset.ok = "1"; v.play().catch(() => {}); if (scenes.length && at === 0) $("bgVideo").classList.add("on"), $("bgImg").classList.remove("on"); }; v.src = MEDIA.video; }
-}
-
 CL.requireKey(async () => {
   $("closeBtn").href = CL.url("/pay");
   try {
-    R = await CL.api("/api/pay/report" + (q.get("month") ? "?month=" + encodeURIComponent(q.get("month")) : ""));
-    if (!R.days.length) { $("msg").innerHTML = `Nothing to report for ${E(R.monthLabel)} yet: no days have passed.<br><a href="${CL.url("/pay")}">Back to Pay</a>`; return; }
+    const qs = ["month", "host"].filter((k) => q.get(k)).map((k) => `${k}=${encodeURIComponent(q.get(k))}`).join("&");
+    R = await CL.api("/api/pay/report" + (qs ? "?" + qs : ""));
+    if (!R.days.length) { $("msg").innerHTML = `Nothing to report for ${E(R.monthLabel)} yet: no days have passed.<br><a href="${CL.url("/pay")}">Close</a>`; return; }
     $("msg").remove();
-    $("crumb").textContent = `${R.venue || "Crewline"} · ${R.rangeLabel}`;
+    $("crumb").textContent = `${R.venue ? R.venue + " · " : ""}${R.rangeLabel}`;
     scenes = build();
     $("scenes").innerHTML = scenes.map((s) => `<section class="scene">${s.html}</section>`).join("");
     $("bars").innerHTML = scenes.map(() => "<i><b></b></i>").join("");
-    media();
+    let media = {};
+    try { media = await (await fetch("/static/report-media.json", { cache: "no-cache" })).json(); } catch (e) {}
+    mountHost(media[R.host] || media.team);
     show(Math.min(scenes.length - 1, Number(q.get("scene")) || 0));
-    if (q.get("still")) { paused = true; setPause(); } else raf = requestAnimationFrame(tick);
+    if (q.get("still")) { paused = true; setPause(); } else requestAnimationFrame(tick);
   } catch (e) { if (e.status !== 401) $("msg").textContent = e.message || "Couldn't load the report."; }
 });
 </script>

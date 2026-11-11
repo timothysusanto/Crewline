@@ -890,6 +890,9 @@ require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, AD
 app.get("/pay", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "pay.html"));
 });
+app.get("/report/print", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "report-print.html"));
+});
 app.get("/report", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "report.html"));
 });

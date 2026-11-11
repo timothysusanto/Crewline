@@ -73,8 +73,10 @@ test("buildWorkbook: the paste block starts at G8, yellow only for days that hav
   const collected = FR.collectMonth(weeks, "2026-11", "2026-11-03");
   const wb = FR.buildWorkbook({ venue: "Test Hotel", month: "2026-11", collected, oncost: { casualPct: 22.17, permanentPct: 31.21 } });
   const back = new ExcelJS.Workbook(); await back.xlsx.load(await wb.xlsx.writeBuffer());
-  assert.deepEqual(back.worksheets.map((w) => w.name), ["For Input Sheet", "Daily", "By person"]);
-  const s = back.getWorksheet("For Input Sheet");
+  assert.deepEqual(back.worksheets.map((w) => w.name), ["By day", "Daily", "By person"]);
+  const s = back.getWorksheet("By day");
+  assert.equal(s.getCell("C8").value, "Kitchen");
+  assert.deepEqual(back.getWorksheet("Daily").getRow(1).values.slice(1, 7), ["Date", "Day", "Basis", "Kitchen casual", "Kitchen FT&PT", "Total wages (ex on-cost)"]);
   assert.equal(s.getCell("G8").value, 300); assert.equal(s.getCell("G9").value, 400); assert.equal(s.getCell("H8").value, 310);
   assert.equal(s.getCell("I8").value, null, "today onward is not in the paste block");
   assert.equal(s.getCell("G8").fill.fgColor.argb, "FFFFF2B3");
@@ -102,29 +104,39 @@ test("parseFinanceWorkbook: revenue by outlet, kitchen Casual / FT&PT, on-cost a
   assert.match((await FR.parseFinanceWorkbook(Buffer.from(await other.xlsx.writeBuffer()))).error, /Input Sheet/);
 });
 
-test("buildReport: finance figures lead, the big day is called out, Crewline is compared on the days it has", async () => {
+test("buildReport: loaded finance figures are used, the big day is called out, nothing compares sources", async () => {
   const parsed = await FR.parseFinanceWorkbook(await financeFile());
   const weeks = [{ days: [], crew: [person("Cas", "casual", "kitchen", { "2026-11-01": 290, "2026-11-02": 260 }), person("Sal", "fulltime", "kitchen", { "2026-11-01": 100, "2026-11-02": 100 })] }];
   const collected = FR.collectMonth(weeks, "2026-11", "2026-11-05");
-  const r = FR.buildReport({ venue: "x", month: "2026-11", today: "2026-11-05", collected, oncost: { casualPct: 22.17, permanentPct: 31.21 }, targets: { kitchenPct: 25 }, finance: FR.toStored(parsed) });
-  assert.equal(r.source.kind, "finance"); assert.equal(r.venue, "Test Hotel"); assert.equal(r.rangeLabel, "1–4 November 2026");
-  assert.equal(r.days.length, 4); assert.equal(r.mtd.revenue.actual, 8300); assert.equal(r.mtd.kitchen.budgetPct, 21.1);
-  assert.equal(r.mtd.kitchen.pct, Math.round((r.mtd.kitchen.actual / 8300) * 1000) / 10);
+  const r = FR.buildReport({ venue: "", month: "2026-11", today: "2026-11-05", collected, oncost: { casualPct: 22.17, permanentPct: 31.21 }, targets: { kitchenPct: 25 }, finance: FR.toStored(parsed) });
+  assert.equal(r.venue, "Test Hotel"); assert.equal(r.rangeLabel, "1–4 November 2026");
+  assert.equal(r.focus, "kitchen"); assert.equal(r.payrollLabel, "Kitchen payroll"); assert.equal(r.host, "chef");
+  assert.equal(r.days.length, 4); assert.equal(r.mtd.revenue.actual, 8300); assert.equal(r.mtd.payroll.budgetPct, 21.1);
+  assert.equal(r.mtd.payroll.pct, Math.round((r.mtd.payroll.actual / 8300) * 1000) / 10);
   const big = r.insights.find((i) => i.key === "bigday");
   assert.ok(big && big.day === "2026-11-03", "5,000 on one day against ~1,100 on the others");
   assert.equal(big.without, Math.round(((497.72 + 436.64 + 473.31) / 3300) * 1000) / 10);
-  assert.equal(r.mtd.crewline.days, 2);
-  assert.match(r.insights.find((i) => i.key === "crewline").text, /the 2 days Crewline has a roster for/);
+  assert.deepEqual(r.departments.map((d) => d.name), ["Kitchen", "Service", "Total payroll"]);
   assert.equal(r.outlets[0].name, "Bistro"); assert.equal(r.outlets[0].variance, -1300);
+  assert.ok(!JSON.stringify(r).match(/finance|crewline/i), "the report never mentions where a figure came from");
+  assert.equal(FR.buildReport({ venue: "Named Pty Ltd", month: "2026-11", today: "2026-11-05", collected, oncost: {}, targets: {}, finance: FR.toStored(parsed) }).venue, "Named Pty Ltd");
 });
 
-test("buildReport without a finance file runs on Crewline's own numbers up to yesterday", () => {
+test("buildReport without a loaded workbook: own numbers up to yesterday, any kind of employer", () => {
   const weeks = [{ days: [{ date: "2026-11-01", actual: 2000 }, { date: "2026-11-02", forecast: 2000 }], crew: [person("Cas", "casual", "kitchen", { "2026-11-01": 400, "2026-11-02": 700 })] }];
   const collected = FR.collectMonth(weeks, "2026-11", "2026-11-03");
-  const r = FR.buildReport({ venue: "Cafe", month: "2026-11", today: "2026-11-03", collected, oncost: { casualPct: 22.17, permanentPct: 31.21 }, targets: { kitchenPct: 30 }, finance: null });
-  assert.equal(r.source.kind, "crewline"); assert.equal(r.through, "2026-11-02"); assert.equal(r.days.length, 2);
-  assert.equal(r.days[0].kitchen, 488.68); assert.equal(r.days[0].pct, 24.4);
-  assert.equal(r.mtd.kitchen.status, "over"); assert.equal(r.mtd.crewline, null); assert.deepEqual(r.outlets, []);
+  const r = FR.buildReport({ venue: "Cafe", month: "2026-11", today: "2026-11-03", collected, oncost: { casualPct: 22.17, permanentPct: 31.21 }, targets: { kitchenPct: 30, totalPct: 55 }, finance: null });
+  assert.equal(r.through, "2026-11-02"); assert.equal(r.days.length, 2);
+  assert.equal(r.days[0].payroll, 488.68); assert.equal(r.days[0].pct, 24.4);
+  assert.equal(r.mtd.payroll.status, "over"); assert.deepEqual(r.outlets, []);
+  assert.deepEqual(r.departments.map((d) => [d.name, d.budgetPct]), [["Kitchen", 30]]);
+  // a warehouse: nobody is "kitchen" or "service"
+  const w2 = [{ days: [{ date: "2026-11-01", actual: 10000 }], crew: [person("Pat", "fulltime", "", { "2026-11-01": 1000 }), person("Lee", "casual", "", { "2026-11-01": 500 })] }];
+  const g = FR.buildReport({ venue: "Depot", month: "2026-11", today: "2026-11-02", collected: FR.collectMonth(w2, "2026-11", "2026-11-02"), oncost: { casualPct: 20, permanentPct: 30 }, targets: { kitchenPct: 22, totalPct: 20 }, finance: null });
+  assert.equal(g.focus, "all"); assert.equal(g.payrollLabel, "Payroll"); assert.equal(g.host, "team");
+  assert.equal(g.mtd.payroll.actual, 1900); assert.equal(g.mtd.payroll.pct, 19); assert.equal(g.mtd.payroll.status, "ok");
+  assert.match(g.insights[0].text, /^Payroll is 19% of revenue against a 20% budget, \$100 under\.$/);
+  assert.equal(FR.buildReport({ venue: "Depot", month: "2026-11", today: "2026-11-02", collected: FR.collectMonth(w2, "2026-11", "2026-11-02"), oncost: {}, targets: {}, finance: null, host: "site" }).host, "site");
   const empty = FR.buildReport({ month: "2026-11", today: "2026-11-01", collected: FR.collectMonth([], "2026-11", "2026-11-01"), oncost: {}, targets: {}, finance: null });
   assert.equal(empty.days.length, 0);
 });
@@ -139,9 +151,9 @@ test("routes: Excel for finance downloads, finance's file loads actual revenue, 
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
     const x = await fetch(base + "/api/pay/finance.xlsx?month=2026-11");
-    assert.equal(x.status, 200); assert.match(x.headers.get("content-disposition"), /crewline_finance_2026-11\.xlsx/);
+    assert.equal(x.status, 200); assert.match(x.headers.get("content-disposition"), /payroll_2026-11\.xlsx/);
     const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await x.arrayBuffer()));
-    assert.ok(wb.getWorksheet("For Input Sheet"));
+    assert.ok(wb.getWorksheet("By day"));
 
     const up = await fetch(base + "/api/pay/finance/import?filename=fb.xlsx", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: await financeFile() });
     const j = await up.json();
@@ -149,7 +161,8 @@ test("routes: Excel for finance downloads, finance's file loads actual revenue, 
     const wk = await (await fetch(base + "/api/pay/week?start=2026-11-02")).json();
     assert.equal(wk.days.find((d) => d.date === "2026-11-03").actual, 5000, "their revenue is now the day's actual");
     const rep = await (await fetch(base + "/api/pay/report?month=2026-11")).json();
-    assert.equal(rep.source.kind, "finance"); assert.equal(rep.source.fileName, "fb.xlsx"); assert.equal(rep.days.length, 4);
+    assert.equal(rep.days.length, 4); assert.equal(rep.mtd.revenue.actual, 8300); assert.equal(rep.mtd.revenue.budget, 9500);
+    assert.equal((await (await fetch(base + "/api/pay/report?month=2026-11&host=site")).json()).host, "site");
     const junk = await fetch(base + "/api/pay/finance/import", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: Buffer.from("hello") });
     assert.equal(junk.status, 422);
   } finally { server.close(); }

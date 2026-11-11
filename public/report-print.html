@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payroll report — Crewline</title>
+<link rel="stylesheet" href="/static/crewline.css">
+<style>
+  /* The printable payroll report: one clean A4 document. On screen it previews the page; Print saves it as a PDF. */
+  @page { size: A4; margin: 12mm 15mm 11mm; }
+  html, body { margin: 0; background: #ECE7DE; }
+  body { font-family: var(--font-ui); color: #1A1A1A; font-size: 10.4pt; line-height: 1.42; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .tools { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; justify-content: center; padding: 10px; background: rgba(236,231,222,.92); backdrop-filter: blur(6px); }
+  .tools button, .tools a { all: unset; cursor: pointer; min-height: 42px; padding: 0 18px; border-radius: 10px; display: inline-flex; align-items: center; font-weight: 800; font-size: 14.5px; background: #fff; border: 1px solid #D8D2C6; color: #1A1A1A; }
+  .tools .go { background: var(--ember); border-color: var(--ember); color: #fff; }
+  .tools button:focus-visible, .tools a:focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+  .paper { background: #fff; width: 210mm; max-width: 100%; min-height: 297mm; margin: 8px auto 30px; padding: 14mm 15mm 13mm; box-sizing: border-box; box-shadow: 0 20px 50px -30px rgba(0,0,0,.5); }
+  .mono, td.n, th.n, .kn { font-family: var(--font-docket); font-variant-numeric: tabular-nums; }
+  header { display: flex; justify-content: space-between; align-items: flex-end; gap: 16pt; padding-bottom: 9pt; border-bottom: 2.2pt solid #1A1A1A; }
+  .kick { font-family: var(--font-docket); font-size: 8pt; letter-spacing: .14em; text-transform: uppercase; color: #C13F0F; font-weight: 700; }
+  h1 { font-size: 20pt; line-height: 1.1; letter-spacing: -.02em; margin: 2pt 0 0; }
+  header .r { text-align: right; font-size: 9.2pt; color: #5F5A53; white-space: nowrap; }
+  header .r b { display: block; font-size: 12.5pt; color: #1A1A1A; letter-spacing: -.01em; }
+  h2 { font-size: 8.4pt; letter-spacing: .12em; text-transform: uppercase; color: #5F5A53; margin: 12pt 0 5pt; font-weight: 800; }
+  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7pt; margin-top: 12pt; }
+  .kpi { border: 1px solid #DDD6CA; border-radius: 7pt; padding: 8pt 9pt; break-inside: avoid; }
+  .kt { font-size: 7.4pt; letter-spacing: .08em; text-transform: uppercase; color: #5F5A53; font-weight: 700; }
+  .kn { font-size: 15.5pt; font-weight: 700; letter-spacing: -.03em; margin-top: 2pt; }
+  .kv { font-size: 9pt; font-weight: 700; } .g { color: #1F6B40; } .b { color: #B3361A; } .a { color: #A8690A; } .m { color: #5F5A53; }
+  .ks { font-size: 8pt; color: #5F5A53; margin-top: 1pt; }
+  ol.finds { margin: 0; padding: 0; list-style: none; counter-reset: f; display: grid; gap: 4pt; }
+  ol.finds li { counter-increment: f; display: grid; grid-template-columns: 15pt 1fr; gap: 7pt; align-items: start; break-inside: avoid; }
+  ol.finds li::before { content: counter(f); width: 14pt; height: 14pt; border-radius: 50%; display: grid; place-items: center; font-size: 7.6pt; font-weight: 800; color: #fff; background: #3E4C59; margin-top: 1pt; }
+  ol.finds li.good::before { background: #1F6B40; } ol.finds li.bad::before { background: #B3361A; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.4pt; }
+  th { text-align: left; font-size: 7.4pt; letter-spacing: .07em; text-transform: uppercase; color: #5F5A53; border-bottom: 1.2pt solid #1A1A1A; padding: 3pt 5pt; font-weight: 700; }
+  td { padding: 3pt 5pt; border-bottom: 1px solid #ECE7DE; vertical-align: middle; }
+  tr { break-inside: avoid; }
+  td.n, th.n { text-align: right; white-space: nowrap; }
+  tr.tot td { font-weight: 800; border-top: 1.2pt solid #1A1A1A; border-bottom: 0; }
+  .bar { height: 7pt; border-radius: 2pt; background: #2F7D4F; display: block; min-width: 2pt; } .bar.a { background: #E0A12E; } .bar.b { background: #E0551F; }
+  .cols { display: grid; grid-template-columns: 1fr 1.1fr; gap: 16pt; align-items: start; }
+  .cols td:first-child { white-space: nowrap; } .cols td, .cols th { padding-left: 4pt; padding-right: 4pt; }
+  .key { font-size: 8pt; color: #5F5A53; margin-top: 4pt; }
+  .key i { display: inline-block; width: 7pt; height: 7pt; border-radius: 2pt; margin: 0 3pt 0 8pt; vertical-align: -1pt; } .key i:first-child { margin-left: 0; }
+  footer { margin-top: 11pt; break-inside: avoid; padding-top: 6pt; border-top: 1px solid #DDD6CA; display: flex; justify-content: space-between; gap: 12pt; font-size: 7.8pt; color: #5F5A53; }
+  footer b { color: #1A1A1A; letter-spacing: .02em; }
+  .msg { text-align: center; padding: 60px 20px; font-size: 16px; }
+  @media screen and (max-width: 800px) { .paper { padding: 20px 16px; min-height: 0; } .kpis { grid-template-columns: repeat(2, 1fr); } .cols { grid-template-columns: 1fr; } header { flex-direction: column; align-items: flex-start; } header .r { text-align: left; } }
+  @media screen and (max-width: 800px) { table.days th:last-child, table.days td:last-child { display: none; } table { font-size: 12.5px; } .paper { overflow-x: auto; } }
+  @media print { html, body { background: #fff; } .tools { display: none; } .paper { box-shadow: none; margin: 0; padding: 0; width: auto; min-height: 0; } }
+</style>
+</head>
+<body>
+<div class="cl-app">
+  <div class="tools"><button class="go" id="printBtn" type="button">Save as PDF / Print</button><a id="playBtn" href="/report">▶ Play the report</a><a id="backBtn" href="/pay">Close</a></div>
+  <div class="paper" id="sheet"><div class="msg">Loading the report…</div></div>
+</div>
+<script src="/static/crewline.js"></script>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id), E = CL.esc;
+const q = new URLSearchParams(location.search);
+const money = (n) => (n == null ? "–" : (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-AU"));
+const signed = (n) => (n == null ? "–" : (n > 0 ? "+" : n < 0 ? "-" : "") + "$" + Math.abs(Math.round(n)).toLocaleString("en-AU"));
+const pct = (n) => (n == null ? "–" : Number(n).toFixed(1) + "%");
+
+function kpi(title, value, cls, line, sub) { return `<div class="kpi"><div class="kt">${E(title)}</div><div class="kn">${value}</div><div class="kv ${cls}">${line}</div><div class="ks">${sub}</div></div>`; }
+
+function render(R) {
+  const m = R.mtd, p = m.payroll, rv = m.revenue;
+  const withRev = R.days.filter((d) => d.pct != null);
+  const over = p.budgetPct == null ? null : withRev.filter((d) => d.pct > p.budgetPct).length;
+  const maxPct = Math.max(1, ...withRev.map((d) => d.pct));
+  const cls = (x) => (p.budgetPct == null || x == null ? "" : x <= p.budgetPct ? "g" : x <= p.budgetPct * 1.25 ? "a" : "b");
+  const statusWord = { ok: "On budget", warn: "Just over budget", over: "Over budget", none: "No budget set" }[p.status];
+  const made = new Date().toLocaleDateString("en-AU", { day: "numeric", month: "long", year: "numeric" });
+  document.title = `Payroll report ${R.rangeLabel}${R.venue ? " — " + R.venue : ""}`;
+  $("sheet").innerHTML = `
+  <header><div><div class="kick">Payroll report</div><h1>${E(R.venue || "Payroll report")}</h1></div>
+    <div class="r"><b>${E(R.rangeLabel)}</b>Day ${R.daysElapsed} of ${R.daysInMonth} · prepared ${E(made)}</div></header>
+  <div class="kpis">
+    ${kpi("Revenue", money(rv.actual), rv.variance == null ? "m" : rv.variance >= 0 ? "g" : "b", rv.variance == null ? "&nbsp;" : `${money(Math.abs(rv.variance))} ${rv.variance >= 0 ? "ahead" : "behind"}`, rv.budget == null ? "No revenue budget" : `Budget ${money(rv.budget)}`)}
+    ${kpi(p.label, money(p.actual), p.variance == null ? "m" : p.variance <= 0 ? "g" : "b", p.variance == null ? "&nbsp;" : `${money(Math.abs(p.variance))} ${p.variance <= 0 ? "under" : "over"}`, p.budget == null ? "No payroll budget" : `Budget ${money(p.budget)}`)}
+    ${kpi("Payroll % of revenue".replace(" of revenue", ""), pct(p.pct), p.status === "ok" ? "g" : p.status === "none" ? "m" : p.status === "warn" ? "a" : "b", statusWord, p.budgetPct == null ? "&nbsp;" : `Of revenue · budget ${pct(p.budgetPct)}`)}
+    ${kpi("Days over budget", over == null ? "–" : `${over} of ${withRev.length}`, over == null ? "m" : over * 2 >= withRev.length ? "b" : "g", over == null ? "&nbsp;" : over === 0 ? "Every day on budget" : over * 2 >= withRev.length ? "Most days over" : "Most days on budget", p.budgetPct == null ? "&nbsp;" : `Days above ${pct(p.budgetPct)}`)}
+  </div>
+  ${R.insights.length ? `<h2>Key findings</h2><ol class="finds">${R.insights.map((i) => `<li class="${i.tone}"><span>${E(i.text)}</span></li>`).join("")}</ol>` : ""}
+      <h2>Day by day</h2>
+      <table class="days"><tr><th>Day</th><th class="n">Revenue</th><th class="n">Payroll</th><th class="n">% of revenue</th><th style="width:38%"></th></tr>
+      ${R.days.map((d) => `<tr><td style="white-space:nowrap">${E(d.label)}</td><td class="n">${money(d.revenue)}</td><td class="n">${money(d.payroll)}</td><td class="n ${cls(d.pct)}"><b>${pct(d.pct)}</b></td><td>${d.pct == null ? "" : `<span class="bar ${cls(d.pct) === "g" ? "" : cls(d.pct)}" style="width:${(d.pct / maxPct) * 100}%"></span>`}</td></tr>`).join("")}
+      <tr class="tot"><td>Total</td><td class="n">${money(rv.actual)}</td><td class="n">${money(p.actual)}</td><td class="n">${pct(p.pct)}</td><td></td></tr></table>
+      ${p.budgetPct == null ? "" : `<div class="key"><i style="background:#2F7D4F"></i>On budget (${pct(p.budgetPct)})<i style="background:#E0A12E"></i>Up to 25% over<i style="background:#E0551F"></i>More than 25% over</div>`}
+  <div class="cols">
+    <div>
+      ${R.departments.length ? `<h2>Payroll by department</h2>
+      <table><tr><th>Department</th><th class="n">Actual</th><th class="n">Budget</th><th class="n">Variance</th><th class="n">% rev</th></tr>
+      ${R.departments.map((d) => `<tr class="${d.total ? "tot" : ""}"><td>${E(d.name)}</td><td class="n">${money(d.actual)}</td><td class="n">${money(d.budget)}</td><td class="n ${d.variance == null ? "" : d.variance <= 0 ? "g" : "b"}">${signed(d.variance)}</td><td class="n">${pct(d.pct)}</td></tr>`).join("")}</table>` : ""}
+    </div>
+    <div>
+      ${R.outlets.length ? `<h2>Revenue by outlet</h2>
+      <table><tr><th>Outlet</th><th class="n">Actual</th><th class="n">Budget</th><th class="n">Variance</th><th class="n">% bud</th></tr>
+      ${R.outlets.map((o) => `<tr><td>${E(o.name)}</td><td class="n">${money(o.actual)}</td><td class="n">${money(o.budget)}</td><td class="n ${o.variance < 0 ? "b" : "g"}">${signed(o.variance)}</td><td class="n">${o.pctOfBudget == null ? "–" : Math.round(o.pctOfBudget) + "%"}</td></tr>`).join("")}
+      <tr class="tot"><td>Total</td><td class="n">${money(rv.actual)}</td><td class="n">${money(rv.budget)}</td><td class="n ${rv.variance < 0 ? "b" : "g"}">${signed(rv.variance)}</td><td class="n">${rv.budget ? Math.round((rv.actual / rv.budget) * 100) + "%" : "–"}</td></tr></table>` : ""}
+    </div>
+  </div>
+  <footer><span>Payroll includes on-costs (casual +${R.oncost.casualPct}%, full- and part-time +${R.oncost.permanentPct}%). Variance is actual less budget. Whole dollars.</span><span><b>Crewline</b></span></footer>`;
+}
+
+$("printBtn").onclick = () => window.print();
+CL.requireKey(async () => {
+  $("backBtn").href = CL.url("/pay");
+  try {
+    const R = await CL.api("/api/pay/report" + (q.get("month") ? "?month=" + encodeURIComponent(q.get("month")) : ""));
+    $("playBtn").href = CL.url("/report?month=" + R.month);
+    if (!R.days.length) { $("sheet").innerHTML = `<div class="msg">Nothing to report for ${E(R.monthLabel)} yet: no days have passed.</div>`; return; }
+    render(R);
+    if (q.get("print")) setTimeout(() => window.print(), 400);
+  } catch (e) { if (e.status !== 401) $("sheet").innerHTML = `<div class="msg">${E(e.message || "Couldn't load the report.")}</div>`; }
+});
+</script>
+</body>
+</html>

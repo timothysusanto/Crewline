@@ -201,6 +201,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       if (Array.isArray(b.publicHolidays)) {
         next.publicHolidays = [...new Set(b.publicHolidays.map(String).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)))].sort().slice(0, 60);
       }
+      if (b.reportHost !== undefined) next.reportHost = FR.HOSTS.includes(b.reportHost) ? b.reportHost : "auto";
       if (b.closures && typeof b.closures === "object") {
         const out = {};
         for (const [team, c] of Object.entries(b.closures).slice(0, 6)) {
@@ -217,7 +218,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       next.cycleAnchor = P.weekStartFor(next.cycleAnchor || P.todayIn(next.timezone), next.weekStartsOn);
       const payroll = {
         weekStartsOn: next.weekStartsOn, timezone: next.timezone, targets: next.targets,
-        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays, oncost: next.oncost, closures: next.closures || {},
+        cycleAnchor: next.cycleAnchor, cycleWeeks: 4, publicHolidays: next.publicHolidays, oncost: next.oncost, closures: next.closures || {}, reportHost: next.reportHost || "auto",
       };
       await tenantStore.updateSettings(req.tenantId, { payroll });
       // The roster page's award costing reads public holidays from here.
@@ -289,14 +290,18 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     return FR.collectMonth(weeks, month, P.todayIn(settings.timezone));
   }
 
+  // A venue still carrying its placeholder name reports under the name on its finance workbook, if one is loaded.
+  const venueName = (tenant, id) => (tenant.name && tenant.name !== id && !/^demo venue$/i.test(tenant.name) ? tenant.name : "");
+
   router.get("/finance.xlsx", async (req, res) => {
     try {
       const { settings, tenant } = await loadSettings(req);
       const month = monthOf(req, settings);
-      const [collected, finance] = await Promise.all([collectFor(req, month, settings), readFinance(req.tenantId, month)]);
-      const wb = FR.buildWorkbook({ venue: tenant.name || "", month, collected, oncost: settings.oncost, finance });
+      const collected = await collectFor(req, month, settings);
+      const fin = await readFinance(req.tenantId, month);
+      const wb = FR.buildWorkbook({ venue: venueName(tenant, req.tenantId) || (fin && fin.venue) || tenant.name || "", month, collected, oncost: settings.oncost });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-      res.setHeader("Content-Disposition", `attachment; filename=crewline_finance_${month}.xlsx`);
+      res.setHeader("Content-Disposition", `attachment; filename=payroll_${month}.xlsx`);
       res.send(Buffer.from(await wb.xlsx.writeBuffer()));
     } catch (e) { err(res, e); }
   });
@@ -318,7 +323,8 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       const { settings, tenant } = await loadSettings(req);
       const month = monthOf(req, settings);
       const [collected, finance] = await Promise.all([collectFor(req, month, settings), readFinance(req.tenantId, month)]);
-      res.json(FR.buildReport({ venue: tenant.name || "", month, today: P.todayIn(settings.timezone), collected, oncost: settings.oncost, targets: settings.targets, finance }));
+      const host = FR.HOSTS.includes(String(req.query.host)) ? String(req.query.host) : settings.reportHost;
+      res.json(FR.buildReport({ venue: venueName(tenant, req.tenantId), month, today: P.todayIn(settings.timezone), collected, oncost: settings.oncost, targets: settings.targets, finance, host }));
     } catch (e) { err(res, e); }
   });
 
