@@ -9,10 +9,14 @@
  *   GET  /api/pay/settings                   targets, week start, timezone, cycle, public holidays
  *   POST /api/pay/settings
  *   GET  /api/pay/export.csv?start=YYYY-MM-DD the pay run, one line per person per day
+ *   GET  /api/pay/finance.xlsx?month=YYYY-MM  the month for finance: payroll per day, Casual / FT&PT (see financeReport.js)
+ *   POST /api/pay/finance/import              finance's own "F&B Daily Payroll" workbook: actual revenue + their payroll actuals
+ *   GET  /api/pay/report?month=YYYY-MM        numbers behind the animated report page (/report)
  *
  * Storage:
  *   tenants/{t}.payroll                      settings (on the tenant doc)
  *   tenants/{t}/payWeeks/{weekStart}         { forecast:{date:$}, actual:{date:$}, updatedAt }
+ *   tenants/{t}/financeMonths/{YYYY-MM}      the last finance workbook imported for that month (days, budget lines)
  *   (in-memory twin when Firestore is absent, so the pages work locally)
  */
 
@@ -20,6 +24,7 @@ const express = require("express");
 const P = require("./payroll");
 const TF = require("./timesheetFixes");
 const TR = require("./timesheetRequests");
+const FR = require("./financeReport");
 const { sendText } = require("./whatsapp");
 
 module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsStore, rosterStore }) {
@@ -254,6 +259,69 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     } catch (e) { err(res, e); }
   });
 
+
+  // ---------- finance: month export, import of their workbook, animated report ----------
+  const memFinance = new Map(); // `${tenantId}|${month}` → doc (no-Firestore mode)
+  async function readFinance(tenantId, month) {
+    if (db) { const d = await db.collection("tenants").doc(tenantId).collection("financeMonths").doc(month).get(); return d.exists ? d.data() : null; }
+    return memFinance.get(`${tenantId}|${month}`) || null;
+  }
+  /** Store a finance month and post its revenue as each day's actual revenue (what the Pay page compares payroll to). */
+  async function saveFinance(tenantId, doc, weekStartsOn = 1) {
+    if (db) await db.collection("tenants").doc(tenantId).collection("financeMonths").doc(doc.month).set(doc);
+    else memFinance.set(`${tenantId}|${doc.month}`, doc);
+    const byWeek = {};
+    for (const d of doc.days || []) if (d.revenue > 0) (byWeek[P.weekStartFor(d.date, weekStartsOn)] = byWeek[P.weekStartFor(d.date, weekStartsOn)] || {})[d.date] = Math.round(d.revenue);
+    for (const [ws, days] of Object.entries(byWeek)) {
+      const cur = await readWeek(tenantId, ws);
+      await writeWeek(tenantId, ws, { forecast: cur.forecast || {}, actual: { ...(cur.actual || {}), ...days } });
+    }
+    return { days: (doc.days || []).length, revenueDays: Object.values(byWeek).reduce((t, w) => t + Object.keys(w).length, 0) };
+  }
+  function monthOf(req, settings) {
+    const raw = String(req.query.month || "");
+    return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : P.todayIn(settings.timezone).slice(0, 7);
+  }
+  async function collectFor(req, month, settings) {
+    const dates = FR.monthDates(month);
+    const weeks = [];
+    for (let ws = P.weekStartFor(dates[0], settings.weekStartsOn); ws <= dates[dates.length - 1]; ws = P.addDays(ws, 7)) weeks.push(await buildWeekFor(req, ws));
+    return FR.collectMonth(weeks, month, P.todayIn(settings.timezone));
+  }
+
+  router.get("/finance.xlsx", async (req, res) => {
+    try {
+      const { settings, tenant } = await loadSettings(req);
+      const month = monthOf(req, settings);
+      const [collected, finance] = await Promise.all([collectFor(req, month, settings), readFinance(req.tenantId, month)]);
+      const wb = FR.buildWorkbook({ venue: tenant.name || "", month, collected, oncost: settings.oncost, finance });
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=crewline_finance_${month}.xlsx`);
+      res.send(Buffer.from(await wb.xlsx.writeBuffer()));
+    } catch (e) { err(res, e); }
+  });
+
+  router.post("/finance/import", express.raw({ type: () => true, limit: "15mb" }), async (req, res) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "No file received." });
+      const { settings } = await loadSettings(req);
+      const parsed = await FR.parseFinanceWorkbook(req.body);
+      if (!parsed.ok) return res.status(422).json({ error: parsed.error });
+      const doc = FR.toStored(parsed, { fileName: String(req.query.filename || "").slice(0, 120) || null });
+      const saved = await saveFinance(req.tenantId, doc, settings.weekStartsOn);
+      res.json({ ok: true, month: doc.month, monthLabel: FR.monthLabel(doc.month), through: doc.through, days: saved.days, revenue: doc.totals.revenue, kitchen: doc.totals.kitchenInc, venue: doc.venue });
+    } catch (e) { console.error("[pay] finance import failed:", e); res.status(500).json({ error: "Couldn't read that file." }); }
+  });
+
+  router.get("/report", async (req, res) => {
+    try {
+      const { settings, tenant } = await loadSettings(req);
+      const month = monthOf(req, settings);
+      const [collected, finance] = await Promise.all([collectFor(req, month, settings), readFinance(req.tenantId, month)]);
+      res.json(FR.buildReport({ venue: tenant.name || "", month, today: P.todayIn(settings.timezone), collected, oncost: settings.oncost, targets: settings.targets, finance }));
+    } catch (e) { err(res, e); }
+  });
+
   // Used by the one-off venue setup (bootstrap.js) to load revenue forecasts.
 
   // ---------- timesheet fix-ups (one tap) ----------
@@ -330,6 +398,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
 
   router.readWeek = readWeek;
   router.writeWeek = writeWeek;
+  router.saveFinance = saveFinance;
   return router;
 };
 

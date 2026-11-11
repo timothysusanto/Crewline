@@ -99,3 +99,16 @@ test("merge moves shifts onto the real record and retires the duplicate", async 
   const dup = (await st.staffStore.listByTenant("t1")).find((s) => s.name === "Timoty Susanto");
   assert.equal(dup.active, false);
 });
+
+test("a `finance` month in the config is handed to saveFinance once", async () => {
+  const st = await setup();
+  const saved = [];
+  const extras = { saveFinance: async (t, doc) => { saved.push([t, doc]); return { days: doc.days.length }; } };
+  const fin = { month: "2026-11", through: "2026-11-02", days: [{ date: "2026-11-01", revenue: 100 }, { date: "2026-11-02", revenue: 200 }] };
+  await runBootstrap(st, "v", JSON.stringify({ id: "f1", finance: fin }), quiet, extras);
+  await runBootstrap(st, "v", JSON.stringify({ id: "f1", finance: fin }), quiet, extras);
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0][0], "v"); assert.equal(saved[0][1].month, "2026-11"); assert.ok(saved[0][1].importedAt);
+  await runBootstrap(st, "v", JSON.stringify({ id: "f2", finance: { month: "nope", days: [] } }), quiet, extras);
+  assert.equal(saved.length, 1, "a malformed month is ignored");
+});

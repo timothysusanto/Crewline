@@ -880,6 +880,7 @@ app.use("/api/pay", requireDashboardKey, payRouter);
 require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, ADMIN_TENANT_ID, undefined, console, {
   readWeek: payRouter.readWeek,
   writeWeek: payRouter.writeWeek,
+  saveFinance: payRouter.saveFinance,
   // The roster page's award costing reads public holidays from this doc.
   writeHolidays: async (tenantId, dates) => {
     const db = getFirestoreDb();
@@ -888,6 +889,9 @@ require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, AD
 }).catch((err) => console.error("[bootstrap] failed:", err));
 app.get("/pay", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "pay.html"));
+});
+app.get("/report", (_req, res) => {
+  res.sendFile(path.join(__dirname, "public", "report.html"));
 });
 app.get("/more", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "more.html"));

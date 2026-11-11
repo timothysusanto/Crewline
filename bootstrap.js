@@ -114,6 +114,12 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
       await extras.writeWeek(tenantId, ws, { forecast, actual: cur.actual || {} });
     }
   }
+  // A finance month (financeReport.toStored shape): their actual revenue and payroll by day.
+  let financeDays = 0;
+  if (cfg.finance && /^\d{4}-\d{2}$/.test(cfg.finance.month || "") && Array.isArray(cfg.finance.days) && extras.saveFinance) {
+    financeDays = (await extras.saveFinance(tenantId, { importedAt: new Date().toISOString(), ...cfg.finance })).days;
+    log.log(`[bootstrap] finance month ${cfg.finance.month}: ${financeDays} day(s) loaded`);
+  }
   if (cfg.payroll && Array.isArray(cfg.payroll.publicHolidays) && extras.writeHolidays) await extras.writeHolidays(tenantId, patch.payroll.publicHolidays);
 
   await tenantStore.updateSettings(tenantId, patch); // last, so a crash above retries next start

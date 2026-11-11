@@ -41,6 +41,11 @@
   .detail-day .dm { font-size: 13px; color: var(--ink-2); }
   .detail-day .dc { font-family: var(--font-docket); font-weight: 700; text-align: right; }
   .detail-day .dc small { display: block; font-weight: 500; color: var(--ink-2); font-size: 11px; }
+  .fin { display: grid; gap: 8px; }
+  .fin .btn { width: 100%; text-align: center; }
+  .fin .help { margin-top: 2px; font-size: 12.5px; color: var(--ink-2); line-height: 1.45; }
+  .fin .help a { color: var(--ember-deep); font-weight: 700; }
+  #finMonth { font-family: var(--font-docket); font-size: 12px; font-weight: 700; color: var(--ink-2); }
   details.how { margin-top: 14px; }
   details.how summary { font-weight: 700; cursor: pointer; color: var(--steel); font-size: 14px; }
   details.how ol { padding-left: 20px; margin: 8px 0 0; font-size: 14px; color: var(--ink-2); }
@@ -88,7 +93,15 @@
   </div>
 
   <div class="section">
-    <div class="btn-row">
+    <h2>Finance <span class="spacer"></span><span id="finMonth">—</span></h2>
+    <div class="card fin">
+      <a class="btn primary" id="reportBtn" href="#">▶ Play the report</a>
+      <a class="btn steel" id="finBtn" href="#">⬇ Excel for finance</a>
+      <button class="btn" id="finImportBtn" type="button">⬆ Load finance's file</button>
+      <input type="file" id="finFile" hidden accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+      <div class="help" id="finHelp">Excel for finance: payroll per day, Casual and FT&PT, ready to paste into their Input Sheet. Load finance's file: their F&B Daily Payroll workbook fills in actual revenue for you.</div>
+    </div>
+    <div class="btn-row" style="margin-top:12px">
       <a class="btn steel" id="csvBtn" href="#">Pay-run CSV</a>
       <button class="btn" id="settingsBtn" type="button">Settings</button>
     </div>
@@ -129,6 +142,10 @@ function render() {
   $("title").textContent = isThis ? "This week" : (weekStart > week.today ? "Next week" : "Past week");
   $("weekLabel").innerHTML = `<small>Pay week</small>${CL.range(weekStart, week.weekEnd)}`;
   $("csvBtn").href = CL.url(`/api/pay/export.csv?start=${weekStart}`);
+  finMonth = (week.today >= weekStart && week.today <= week.weekEnd ? week.today : weekStart).slice(0, 7);
+  $("finMonth").textContent = new Date(finMonth + "-15T12:00:00Z").toLocaleDateString("en-AU", { month: "long", year: "numeric", timeZone: "UTC" });
+  $("finBtn").href = CL.url(`/api/pay/finance.xlsx?month=${finMonth}`);
+  $("reportBtn").href = CL.url(`/report?month=${finMonth}`);
 
   // ----- budget card -----
   const hasRev = t.expectedRevenue != null && t.expectedRevenue > 0;
@@ -368,6 +385,20 @@ CL.swipe(document.querySelector(".topbar"), { left: () => load(CL.addDays(weekSt
 CL.swipe($("budgetCard"), { left: () => load(CL.addDays(weekStart, 7)), right: () => load(CL.addDays(weekStart, -7)) });
 $("nextWeek").onclick = () => load(CL.addDays(weekStart, 7));
 $("editForecast").onclick = forecastSheet;
+/* ---------- finance: load their workbook (actual revenue + their payroll actuals) ---------- */
+let finMonth = "";
+$("finImportBtn").onclick = () => { $("finFile").value = ""; $("finFile").click(); };
+$("finFile").onchange = async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  $("finHelp").textContent = "Reading " + f.name + "…";
+  try {
+    const r = await CL.api(`/api/pay/finance/import?filename=${encodeURIComponent(f.name)}`, { method: "POST", raw: f });
+    $("finHelp").innerHTML = `<b>Loaded ${E(r.monthLabel)}, ${r.days} days.</b> F&B revenue $${Math.round(r.revenue).toLocaleString("en-AU")}, kitchen payroll $${Math.round(r.kitchen).toLocaleString("en-AU")} (in on-cost). Actual revenue is now on each day. <a href="${CL.url("/report?month=" + r.month)}">Play the report</a>`;
+    CL.toast("Finance file loaded");
+    load(weekStart);
+  } catch (err) { $("finHelp").innerHTML = `<span class="err">${E(err.message || "Couldn't read that file.")}</span>`; }
+};
+
 $("settingsBtn").onclick = settingsSheet;
 CL.tabbar("pay"); CL.topbar();
 CL.requireKey(async () => {
