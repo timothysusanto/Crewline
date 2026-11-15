@@ -88,6 +88,20 @@ async function handleIncoming(message, deps, tenantContext = null) {
       await handleRosterQuery(from, staff, deps, sendOpts);
       return;
     }
+    // "invite" (managers/owners, Telegram): a forwardable message with a tappable
+    // button, to drop in the staff group so everyone can link in one tap.
+    if (body === "invite" && sendOpts.channel === "telegram" && (staff.role === "owner" || staff.role === "manager")) {
+      const bot = process.env.TELEGRAM_BOT_USERNAME || "CrewLine_SuperApps_bot";
+      await require("./telegramClient").sendLinkButton(
+        sendOpts.chatId,
+        "Crewline roster bot — see your roster and get shift updates. It does not replace Zambion.\n\n" +
+          "1. Tap the button below\n2. Tap START\n3. Tap \"Share my phone number\"\n\n" +
+          "(Forward this message to your staff group.)",
+        "Open Crewline bot",
+        `https://t.me/${bot}?start=join`
+      );
+      return;
+    }
     // Credential wallet — "wallet" lists; and while a photo draft is pending
     // (10-min window), yes/no/corrections belong to it. handleWalletReply
     // returns false when nothing is pending, so it can never shadow the

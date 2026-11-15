@@ -101,6 +101,19 @@ function sendChoices(chatId, body, rows, options = {}) {
   );
 }
 
+/** A message with a tap-to-open link button (always clickable, survives forwarding). */
+function sendLinkButton(chatId, body, label, url, options = {}) {
+  return call(
+    "sendMessage",
+    {
+      chat_id: chatId,
+      text: body,
+      reply_markup: { inline_keyboard: [[{ text: label, url }]] },
+    },
+    options
+  );
+}
+
 /** One-tap "share my phone number" button — used once to link a chat to a staff record. */
 function sendContactRequest(chatId, body, options = {}) {
   return call(
@@ -174,4 +187,4 @@ function setWebhook(url, secret, options = {}) {
   );
 }
 
-module.exports = { sendText, sendLocationRequest, sendChoices, sendVoice, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };
+module.exports = { sendText, sendLinkButton, sendLocationRequest, sendChoices, sendVoice, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };
