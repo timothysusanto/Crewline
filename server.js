@@ -15,6 +15,7 @@ const { sendText, setChannelResolver } = require("./whatsapp");
 const { handleTelegramUpdate, verifyTelegramSecret } = require("./telegramWebhook");
 const telegramClient = require("./telegramClient");
 const { handleIncoming } = require("./router");
+const payPrivacy = require("./payPrivacy");
 const { buildStores } = require("./stores");
 const { InMemoryPendingActions } = require("./pendingActions");
 const { normalizeGeofence, slugifySiteId, MIN_RADIUS_METERS, MAX_RADIUS_METERS } = require("./siteStore");
@@ -356,15 +357,21 @@ async function requireDashboardKey(req, res, next) {
     if (cached && Date.now() - cached.at < KEY_CACHE_MS) {
       req.tenantId = cached.tenantId;
       req.tenantName = cached.name;
+      req.isTeam = Boolean(cached.team);
       return next();
     }
-    const tenant = await tenantStore.findByDashboardKey(provided);
+    let tenant = await tenantStore.findByDashboardKey(provided);
+    // A manager link: same venue, but salaries stay private and settings are locked
+    // (see payPrivacy.js). Only keys this server issued ("team-…") are looked up.
+    let team = false;
+    if (!tenant && /^team-[A-Za-z0-9_-]{16,}$/.test(String(provided))) { tenant = await tenantStore.findByTeamKey(String(provided)); team = Boolean(tenant); }
     if (!tenant || tenant.active === false) {
       return res.status(401).json({ error: "Invalid or missing dashboard key." });
     }
-    keyCache.set(provided, { tenantId: tenant.tenantId, name: tenant.name, at: Date.now() });
+    keyCache.set(provided, { tenantId: tenant.tenantId, name: tenant.name, team, at: Date.now() });
     req.tenantId = tenant.tenantId;
     req.tenantName = tenant.name;
+    req.isTeam = team;
     return next();
   } catch (err) {
     console.error("[auth] key lookup failed:", err.message);
@@ -381,6 +388,12 @@ async function owned(req, res, record) {
   if (record && record.tenantId === req.tenantId) return true;
   res.status(404).json({ error: "Not found." });
   return false;
+}
+
+/** Owner link only: a manager link (req.isTeam) can't change settings or see/alter the keys. */
+function requireOwner(req, res, next) {
+  if (req.isTeam) return res.status(403).json({ error: "Only the owner link can do that." });
+  next();
 }
 
 /** Admin-only (the MANAGER_DASHBOARD_PASSWORD key). */
@@ -415,6 +428,11 @@ app.get("/api/dashboard", requireDashboardKey, async (req, res) => {
       seen.add(s.shiftId);
       return true;
     });
+    if (req.isTeam) {
+      // Manager link: no salaries, and never the venue's keys or tokens.
+      const { dashboardKey, teamKey, whatsappToken, ...safeVenue } = venue || {};
+      return res.json({ staff: staff.map(payPrivacy.redactWorker), shifts, venue: safeVenue, sites });
+    }
     res.json({ staff, shifts, venue, sites });
   } catch (err) {
     console.error("[dashboard] failed to load data:", err);
@@ -497,6 +515,7 @@ app.post("/api/staff", requireDashboardKey, async (req, res) => {
     const cleanPhone = String(phone).replace(/\D/g, "");
     if (!cleanPhone) return res.status(400).json({ error: "phone must be digits, international format (e.g. 61412345678)." });
     const existing = await staffStore.findByPhone(cleanPhone);
+    if (req.isTeam && payPrivacy.touchesSalary(existing, req.body)) return res.status(403).json({ error: payPrivacy.LOCKED });
     if (existing && existing.tenantId && existing.tenantId !== req.tenantId) {
       return res.status(409).json({ error: "That number is already registered at another venue." });
     }
@@ -691,14 +710,36 @@ app.post("/api/shifts/:id/amend", requireDashboardKey, async (req, res) => {
 app.get("/api/me", requireDashboardKey, async (req, res) => {
   try {
     const tenant = await tenantStore.findById(req.tenantId);
-    res.json({ tenantId: req.tenantId, name: (tenant && tenant.name) || req.tenantId, isAdmin: Boolean(req.isAdmin), staffLimit: (tenant && tenant.staffLimit) || DEFAULT_STAFF_LIMIT });
+    res.json({ tenantId: req.tenantId, name: (tenant && tenant.name) || req.tenantId, isAdmin: Boolean(req.isAdmin), isTeam: Boolean(req.isTeam), staffLimit: (tenant && tenant.staffLimit) || DEFAULT_STAFF_LIMIT,
+      ...(req.isTeam ? {} : { teamKey: (tenant && tenant.teamKey) || null }) });
   } catch (err) {
     res.status(500).json({ error: "Couldn't load venue." });
   }
 });
 
+/**
+ * POST /api/team-link — the manager link: a second key for a sous chef or 2IC.
+ * It opens the same venue, but salaried pay is never sent to that browser and
+ * settings are locked. Body: { action: "create" | "off" }. "create" also replaces
+ * an existing link (the old one stops working). Owner link only.
+ */
+app.post("/api/team-link", requireDashboardKey, requireOwner, async (req, res) => {
+  try {
+    const action = (req.body || {}).action;
+    if (!["create", "off"].includes(action)) return res.status(400).json({ error: 'action must be "create" or "off".' });
+    if (!(await tenantStore.findById(req.tenantId))) await tenantStore.create(req.tenantId, { name: req.tenantId, active: true, createdAt: new Date().toISOString() });
+    const teamKey = action === "create" ? "team-" + require("crypto").randomBytes(15).toString("base64url") : null;
+    await tenantStore.updateSettings(req.tenantId, { teamKey });
+    keyCache.clear(); // an old link must stop working now, not in a minute
+    res.json({ ok: true, teamKey });
+  } catch (err) {
+    console.error("[team-link] failed:", err);
+    res.status(500).json({ error: "Couldn't update the manager link." });
+  }
+});
+
 /** POST /api/venue — rename this venue (what the pages and the bot call it). */
-app.post("/api/venue", requireDashboardKey, async (req, res) => {
+app.post("/api/venue", requireDashboardKey, requireOwner, async (req, res) => {
   try {
     const name = String((req.body || {}).name || "").trim().slice(0, 60);
     if (!name) return res.status(400).json({ error: "A venue name is needed." });
@@ -881,6 +922,7 @@ require("./bootstrap").runBootstrap({ staffStore, tenantStore, rosterStore }, AD
   readWeek: payRouter.readWeek,
   writeWeek: payRouter.writeWeek,
   saveFinance: payRouter.saveFinance,
+  weekFlags: payRouter.weekFlags,
   // The roster page's award costing reads public holidays from this doc.
   writeHolidays: async (tenantId, dates) => {
     const db = getFirestoreDb();

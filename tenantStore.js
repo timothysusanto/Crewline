@@ -80,6 +80,15 @@ class InMemoryTenantStore {
     return null;
   }
 
+  /** The venue a manager link (pay-private key) opens, or null. */
+  async findByTeamKey(key) {
+    if (!key) return null;
+    for (const [tenantId, data] of this._tenants.entries()) {
+      if (data.teamKey && data.teamKey === key) return { tenantId, ...data };
+    }
+    return null;
+  }
+
   async listAll() {
     return [...this._tenants.entries()].map(([tenantId, data]) => ({ tenantId, ...data }));
   }
@@ -133,6 +142,15 @@ class FirestoreTenantStore {
   async findByDashboardKey(key) {
     if (!key) return null;
     const snap = await this.collection.where("dashboardKey", "==", key).limit(1).get();
+    if (snap.empty) return null;
+    const doc = snap.docs[0];
+    return { tenantId: doc.id, ...doc.data() };
+  }
+
+  /** The venue a manager link (pay-private key) opens. Single-field equality — no index needed. */
+  async findByTeamKey(key) {
+    if (!key) return null;
+    const snap = await this.collection.where("teamKey", "==", key).limit(1).get();
     if (snap.empty) return null;
     const doc = snap.docs[0];
     return { tenantId: doc.id, ...doc.data() };

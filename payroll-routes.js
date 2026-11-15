@@ -25,6 +25,7 @@ const P = require("./payroll");
 const TF = require("./timesheetFixes");
 const TR = require("./timesheetRequests");
 const FR = require("./financeReport");
+const PP = require("./payPrivacy");
 const { sendText } = require("./whatsapp");
 
 module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsStore, rosterStore }) {
@@ -113,6 +114,8 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     week.lastWeek = history.find((h) => h.weekStart === P.addDays(weekStart, -7)) || null;
     return week;
   }
+  /** What the browser gets: a manager link (req.isTeam) never receives individual salaries. */
+  const forViewer = (req, week) => (req.isTeam ? PP.redactWeek(week) : week);
 
   router.get("/week", async (req, res) => {
     try {
@@ -121,7 +124,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       const weekStart = /^\d{4}-\d{2}-\d{2}$/.test(raw)
         ? P.weekStartFor(raw, settings.weekStartsOn)
         : P.weekStartFor(P.todayIn(settings.timezone), settings.weekStartsOn);
-      res.json(await buildWeekFor(req, weekStart));
+      res.json(forViewer(req, await buildWeekFor(req, weekStart)));
     } catch (e) { err(res, e); }
   });
 
@@ -157,7 +160,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       for (const [d, v] of Object.entries(clean(body.forecast))) { if (v == null) delete forecast[d]; else forecast[d] = v; }
       for (const [d, v] of Object.entries(clean(body.actual))) { if (v == null) delete actual[d]; else actual[d] = v; }
       await writeWeek(req.tenantId, weekStart, { forecast, actual });
-      res.json(await buildWeekFor(req, weekStart));
+      res.json(forViewer(req, await buildWeekFor(req, weekStart)));
     } catch (e) { err(res, e); }
   });
 
@@ -171,6 +174,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
 
   router.post("/settings", async (req, res) => {
     try {
+      if (req.isTeam) return res.status(403).json({ error: "Only the owner link can change pay settings." });
       const { settings: cur } = await loadSettings(req);
       const b = req.body || {};
       const next = { ...cur };
@@ -233,9 +237,11 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
       const { settings } = await loadSettings(req);
       const raw = String(req.query.start || "");
       const weekStart = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? P.weekStartFor(raw, settings.weekStartsOn) : P.weekStartFor(P.todayIn(settings.timezone), settings.weekStartsOn);
-      const week = await buildWeekFor(req, weekStart);
+      const week = forViewer(req, await buildWeekFor(req, weekStart));
       const rows = [["Name", "Department", "Type", "Level", "Rate", "Date", "Day", "Start", "End", "UnpaidBreakMins", "PaidHours", "Multiplier", "LoadingAmt", "OTHours", "Wage", "Note"]];
+      if (week.salaried) rows.push([`Salaried staff (${week.salaried.headcount})`, "", "Salaried", "", "", "", "", "", "", "", "", "", "", "", week.salaried.wages.toFixed(2), "combined for the week; individual salaries are private on a manager link"]);
       for (const c of week.crew) {
+        if (c.payHidden) continue;
         for (const d of c.days) {
           if (c.payType === "salary") {
             if (d.rosteredCost > 0) rows.push([c.name, c.department || "", "Salaried", "", (c.weeklySalary || 0).toFixed(2) + "/wk", d.date, dayName(d.date), "", "", "", d.workedHours || "", "", "", "", d.rosteredCost.toFixed(2), "salary posted daily"]);
@@ -297,7 +303,8 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     try {
       const { settings, tenant } = await loadSettings(req);
       const month = monthOf(req, settings);
-      const collected = await collectFor(req, month, settings);
+      const all = await collectFor(req, month, settings);
+      const collected = req.isTeam ? PP.redactPeople(all) : all;
       const fin = await readFinance(req.tenantId, month);
       const wb = FR.buildWorkbook({ venue: venueName(tenant, req.tenantId) || (fin && fin.venue) || tenant.name || "", month, collected, oncost: settings.oncost });
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -402,6 +409,15 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     } catch (e) { console.error("[pay] request decision failed:", e); res.status(500).json({ error: e.message || "Couldn't update that request." }); }
   });
 
+  /** This week's and next week's flags (the "Worth a look" notes) — used by the one-off venue setup to log before/after. */
+  router.weekFlags = async (tenantId) => {
+    const req = { tenantId };
+    const { settings } = await loadSettings(req);
+    const ws = P.weekStartFor(P.todayIn(settings.timezone), settings.weekStartsOn);
+    const out = [];
+    for (const start of [ws, P.addDays(ws, 7)]) for (const f of (await buildWeekFor(req, start)).flags || []) out.push({ week: start, text: f.text });
+    return out;
+  };
   router.readWeek = readWeek;
   router.writeWeek = writeWeek;
   router.saveFinance = saveFinance;

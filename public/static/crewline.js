@@ -192,6 +192,8 @@
      * Saves through /api/core/workers (POST / PUT). Deactivate through PUT active:false.
      */
     async crewSheet(worker, onSaved) {
+      // Manager link: a salaried person's record (and salary) stays with the owner link.
+      if (worker && worker.payHidden) { CL.toast("Salaried staff can only be changed from the owner link."); return; }
       const awards = await CL.awards();
       const w = worker || {};
       const et = w.employmentType || "casual";

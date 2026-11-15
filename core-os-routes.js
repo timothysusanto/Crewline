@@ -23,6 +23,7 @@ const DEFAULT_STAFF_LIMIT = 15;
 const { costShift, costRoster, getAward, listUnverifiedRates, listAwards } = require("./award-engine");
 
 const { CREDENTIAL_TYPES } = require("./credentialTypes");
+const PP = require("./payPrivacy");
 
 module.exports = function coreOS({ db, sendMessage, tenantStore }) {
   const router = express.Router();
@@ -103,7 +104,7 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
           : mine.some((c) => c.expiryDate && c.expiryDate < soon) ? "expiring"
           : "ok";
       }
-      res.json({ workers });
+      res.json({ workers: req.isTeam ? workers.map(PP.redactWorker) : workers });
     } catch (e) { err(res, e); }
   });
 
@@ -118,6 +119,7 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       if (!getAward(awardCode || "MA000009").levels[level]) {
         return res.status(400).json({ error: "Unknown classification level for that award" });
       }
+      if (req.isTeam && PP.touchesSalary(null, req.body)) return res.status(403).json({ error: PP.LOCKED });
       const pay = payFields(req.body, { employmentType });
       if (pay.error) return res.status(400).json({ error: pay.error });
       let ref;
@@ -140,6 +142,7 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
       const ref = W(req).doc(req.params.id);
       const doc = await ref.get();
       if (!doc.exists) return res.status(404).json({ error: "Worker not found" });
+      if (req.isTeam && PP.touchesSalary(doc.data(), req.body)) return res.status(403).json({ error: PP.LOCKED });
       const allowed = ["name", "employmentType", "level", "awardCode", "active", "role"];
       const patch = {};
       for (const k of allowed) if (req.body[k] !== undefined) patch[k] = req.body[k];

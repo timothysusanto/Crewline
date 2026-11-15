@@ -16,7 +16,9 @@
  *
  * A crew entry's `set` object is applied even to people already on the list (used to
  * load pay details or a promotion). `forecast` ({date: $}) fills revenue forecasts for
- * days that don't have one yet — never overwrites what a manager typed.
+ * days that don't have one yet — never overwrites what a manager typed. `updateOnly` on a crew
+ * entry means "change this person, never add them"; `logFlags` / `logCrew` (name lists) log the
+ * Pay page notes and the crew records for those people, so a change can be checked in the logs.
  */
 const { matchStaff, commitShifts, mondayOf } = require("./rosterImport");
 
@@ -60,6 +62,15 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
     const all = await staffStore.listByTenant(tenantId);
     log.log(`[bootstrap] crew on file (${all.length}): ` + all.map((s) => `${s.name}|${String(s.phone).startsWith("pending-") ? "pending" : "mobile"}|${s.active === false ? "inactive" : "active"}|${s.role || ""}|${s.createdAt ? String(s.createdAt).slice(0, 16) : ""}`).join("; "));
   }
+  // logFlags: ["name", …] — log the Pay page's notes that mention these people, before and after the changes below.
+  const logFlags = async (when) => {
+    if (!Array.isArray(cfg.logFlags) || !extras.weekFlags) return;
+    try {
+      const hits = (await extras.weekFlags(tenantId)).filter((f) => cfg.logFlags.some((n) => f.text.toLowerCase().includes(String(n).toLowerCase())));
+      log.log(`[bootstrap] notes ${when} (${hits.length}): ` + (hits.map((f) => `[wk ${f.week}] ${f.text}`).join(" || ") || "none"));
+    } catch (e) { log.error("[bootstrap] couldn't read notes:", e.message); }
+  };
+  await logFlags("before");
   const idFor = new Map(); // config name -> staff id (phone or placeholder)
   let added = 0, merged = 0;
   for (const c of cfg.crew || []) {
@@ -75,6 +86,8 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
       Object.assign(keep, c.set || {});
       if (Object.keys(keep).length) { await staffStore.upsert({ ...hit, ...keep }); Object.assign(hit, keep); }
       idFor.set(c.name, String(hit.phone)); merged++;
+    } else if (c.updateOnly) {
+      log.log(`[bootstrap] NOT FOUND, nothing changed: ${c.name}`); // an edit to someone on the list never adds a person
     } else {
       const id = c.phone ? String(c.phone).replace(/\D/g, "") : slug(c.name);
       await staffStore.upsert({
@@ -83,6 +96,12 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
       });
       idFor.set(c.name, id); added++; log.log(`[bootstrap] added new crew: ${c.name}`);
     }
+  }
+
+  await logFlags("after");
+  if (cfg.logCrew) {
+    const now = (await staffStore.listByTenant(tenantId)).filter((s) => cfg.logCrew.some((n) => norm(s.name).includes(norm(n))));
+    log.log("[bootstrap] crew now: " + now.map((s) => `${s.name}|${s.employmentType || "-"}|${s.payType || "-"}|${s.level || "-"}|rate ${s.hourlyRate ?? "-"}|contract ${s.contractHours ?? "-"}|${s.jobTitle || "-"}`).join("; "));
   }
 
   // 3. Shifts (drafts, deduped).

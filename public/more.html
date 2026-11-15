@@ -65,6 +65,9 @@
         <a class="row tap" id="lnkCompliance" href="#" style="text-decoration:none;color:inherit"><div class="grow"><div class="t">Compliance pack (CSV)</div><div class="s">Every roster shift and amendment, last 90 days</div></div></a>
       </div>
     </div>
+    <div class="section" id="teamSection" style="display:none"><h2>Manager link</h2>
+      <div class="card" id="teamCard"></div>
+    </div>
     <div class="section" id="adminSection" style="display:none"><h2>Venues (admin)</h2>
       <div class="card rows" id="tenantList"></div>
       <button class="btn block" id="addTenant" type="button" style="margin-top:12px">+ New venue</button>
@@ -105,7 +108,7 @@ function renderCrew() {
   $("crewCap").textContent = me && me.staffLimit ? `${workers.filter((w) => w.role !== "owner").length} of ${me.staffLimit}` : `${workers.length}`;
   $("crewList").innerHTML = list.length ? list.map((w, i) => {
     const kind = w.employmentType === "fulltime" && w.payType === "salary" ? "Salaried" : ({ casual: "Casual", parttime: "Part-time", fulltime: "Full-time" }[w.employmentType] || "no pay details");
-    const rate = w.payType === "salary" ? (w.annualSalary ? "$" + Number(w.annualSalary).toLocaleString("en-AU") + "/yr" : "no salary") : (w.hourlyRate || w.wageRate ? "$" + Number(w.hourlyRate || w.wageRate).toFixed(2) + "/h" : (w.level ? "award " + w.level : ""));
+    const rate = w.payHidden ? "pay private" : w.payType === "salary" ? (w.annualSalary ? "$" + Number(w.annualSalary).toLocaleString("en-AU") + "/yr" : "no salary") : (w.hourlyRate || w.wageRate ? "$" + Number(w.hourlyRate || w.wageRate).toFixed(2) + "/h" : (w.level ? "award " + w.level : ""));
     return `<div class="row tap" data-i="${workers.indexOf(w)}">
       <div class="avatar ${w.department === "kitchen" ? "k" : ""}">${CL.initials(w.name)}${CL.photo(w.name, w.id || w.phone, w.avatar)}</div>
       <div class="grow"><div class="t ellipsis">${E(w.name)} ${w.role && w.role !== "staff" ? `<span class="pill" style="font-size:10px">${w.role}</span>` : ""}</div>
@@ -245,6 +248,30 @@ function renderVenue() {
     };
   };
   if (me && me.isAdmin) { $("adminSection").style.display = ""; loadTenants(); }
+  if (me && me.isTeam) { $("renameBtn").style.display = "none"; }
+  else if (me) { $("teamSection").style.display = ""; renderTeam(); }
+}
+/* Manager link: a second key for a sous chef / 2IC. Salaries stay private, settings are locked. */
+function renderTeam() {
+  const link = me.teamKey ? `${location.origin}/roster?key=${encodeURIComponent(me.teamKey)}` : "";
+  $("teamCard").innerHTML = me.teamKey ? `
+      <div style="font-weight:800">Manager link is on</div>
+      <div class="help" style="margin:4px 0 10px">Send this to your sous chef or 2IC. They get the roster, crew and payroll totals. Salaries stay private (shown as one combined "Salaried staff" figure) and settings are locked.</div>
+      <input id="teamUrl" type="text" readonly value="${E(link)}" style="width:100%;font-size:13px;padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--paper)">
+      <div class="btn-row" style="margin-top:10px"><button class="btn primary" id="teamCopy" type="button">Copy link</button><button class="btn" id="teamOff" type="button">Turn off</button></div>`
+    : `<div style="font-weight:800">Share Crewline without sharing salaries</div>
+      <div class="help" style="margin:4px 0 10px">Creates a second link for your sous chef or 2IC. They get the roster, crew and payroll totals. Salaries stay private (shown as one combined "Salaried staff" figure) and settings are locked. Don't share your own link.</div>
+      <button class="btn primary block" id="teamOn" type="button">Create manager link</button>`;
+  const set = async (action) => {
+    try { const r = await CL.api("/api/team-link", { method: "POST", body: { action } }); me.teamKey = r.teamKey; renderTeam(); CL.toast(action === "create" ? "Manager link created" : "Manager link turned off"); }
+    catch (e) { CL.toast(e.message); }
+  };
+  if ($("teamOn")) $("teamOn").onclick = () => set("create");
+  if ($("teamOff")) $("teamOff").onclick = () => { if (CL.confirm("Turn off the manager link? Anyone using it is locked out straight away.")) set("off"); };
+  if ($("teamCopy")) $("teamCopy").onclick = async () => {
+    const i = $("teamUrl"); i.select();
+    try { await navigator.clipboard.writeText(i.value); CL.toast("Link copied"); } catch { try { document.execCommand("copy"); CL.toast("Link copied"); } catch { CL.toast("Press and hold the link to copy it"); } }
+  };
 }
 async function loadTenants() {
   try {

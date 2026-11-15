@@ -219,7 +219,11 @@ function render() {
 
   // ----- crew -----
   $("crewCount").textContent = `${week.crew.length} people`;
-  $("crewList").innerHTML = week.crew.length ? week.crew.map((c, i) => {
+  const sal = week.salaried; // manager link only: salaried pay arrives as one combined figure
+  const salRow = sal ? `<div class="row"><div class="l1"><div class="avatar k">Σ</div>
+        <div class="grow"><div class="t">Salaried staff (${sal.headcount})</div><div class="s">Combined · individual salaries are private</div></div>
+        <div class="right"><div class="n">${CL.money(sal.projected)}</div><div class="s">this week</div></div></div></div>` : "";
+  $("crewList").innerHTML = week.crew.length ? salRow + week.crew.map((c, i) => {
     const cyc = c.cycle ? `<div class="l2"><span>152h · wk ${c.cycle.weekIndex}/${c.cycle.weeks}</span>
         <div class="cycle ${c.cycle.status}"><i class="plan" style="width:${Math.min(100, (c.cycle.total / c.cycle.limit) * 100)}%"></i><i style="width:${Math.min(100, ((c.cycle.hoursBefore + (week.days.filter((d) => d.isPast).length ? c.workedHours : 0)) / c.cycle.limit) * 100)}%"></i></div>
         <span class="${c.cycle.status === "over" ? "over" : ""}" style="${c.cycle.status === "over" ? "color:var(--red)" : c.cycle.status === "close" ? "color:var(--amber)" : ""}">${c.cycle.total}/${c.cycle.limit}h${c.cycle.over ? " · +" + c.cycle.over + "h OT" : ""}</span></div>` : "";
@@ -227,8 +231,8 @@ function render() {
       <div class="l1">
         <div class="avatar ${c.department === "kitchen" ? "k" : ""}">${CL.initials(c.name)}${CL.photo(c.name, c.id, c.avatar)}</div>
         <div class="grow"><div class="t ellipsis">${E(c.name)}</div>
-          <div class="s">${c.typeLabel}${c.department ? " · " + cap(c.department) : ' · <span style="color:var(--amber)">no department</span>'} · ${c.payType === "salary" ? CL.money(c.weeklySalary) + "/wk" : "$" + c.hourlyRate.toFixed(2) + (c.aboveAward ? ' <span class="ab">above award</span>' : " award " + c.level)}</div></div>
-        <div class="right"><div class="n">${CL.money(c.projectedCost)}</div><div class="s">${CL.hrs(c.projectedHours)}</div></div>
+          <div class="s">${c.typeLabel}${c.department ? " · " + cap(c.department) : ' · <span style="color:var(--amber)">no department</span>'} · ${c.payHidden ? "pay private" : c.payType === "salary" ? CL.money(c.weeklySalary) + "/wk" : "$" + c.hourlyRate.toFixed(2) + (c.aboveAward ? ' <span class="ab">above award</span>' : " award " + c.level)}</div></div>
+        <div class="right">${c.payHidden ? `<div class="n">${CL.hrs(c.projectedHours)}</div><div class="s">hours</div>` : `<div class="n">${CL.money(c.projectedCost)}</div><div class="s">${CL.hrs(c.projectedHours)}</div>`}</div>
       </div>${cyc}</div>`;
   }).join("") : `<div class="empty">No crew with pay details yet. Add them under More → Crew (employment type, level, rate or salary).</div>`;
   $("crewList").querySelectorAll(".crew-row").forEach((el) => (el.onclick = () => personSheet(week.crew[Number(el.dataset.i)])));
@@ -245,11 +249,11 @@ function personSheet(c) {
   const days = c.days.filter((d) => d.rosteredHours || d.workedHours || d.rosteredCost || d.actualCost);
   const body = `
     <div class="hstack" style="margin-bottom:12px"><div class="avatar ${c.department === "kitchen" ? "k" : ""}" style="width:44px;height:44px;border-radius:50%;background:${c.department === "kitchen" ? "var(--ember)" : "var(--steel)"};color:#fff;display:grid;place-items:center;font-weight:800">${CL.initials(c.name)}${CL.photo(c.name, c.id, c.avatar)}</div>
-      <div class="grow"><div style="font-weight:800">${E(c.name)}</div><div class="muted" style="font-size:13px">${c.typeLabel}${c.department ? " · " + cap(c.department) : ""} · ${c.payType === "salary" ? "$" + Math.round(c.weeklySalary * 52).toLocaleString("en-AU") + "/yr" : "HIGA " + c.level + " · $" + c.hourlyRate.toFixed(2) + "/h" + (c.aboveAward ? " (award $" + c.awardRate.toFixed(2) + ")" : "")}</div></div></div>
+      <div class="grow"><div style="font-weight:800">${E(c.name)}</div><div class="muted" style="font-size:13px">${c.typeLabel}${c.department ? " · " + cap(c.department) : ""} · ${c.payHidden ? "pay private" : c.payType === "salary" ? "$" + Math.round(c.weeklySalary * 52).toLocaleString("en-AU") + "/yr" : "HIGA " + c.level + " · $" + c.hourlyRate.toFixed(2) + "/h" + (c.aboveAward ? " (award $" + c.awardRate.toFixed(2) + ")" : "")}</div></div></div>
     <div class="grid3" style="margin-bottom:12px">
-      <div class="stat"><div class="v">${CL.money(c.projectedCost)}</div><div class="l">This week</div></div>
+      <div class="stat"><div class="v">${c.payHidden ? "Private" : CL.money(c.projectedCost)}</div><div class="l">This week</div></div>
       <div class="stat"><div class="v">${CL.hrs(c.projectedHours)}</div><div class="l">Hours</div></div>
-      <div class="stat"><div class="v">${CL.money(c.rosteredCost)}</div><div class="l">Rostered</div></div>
+      <div class="stat"><div class="v">${c.payHidden ? CL.hrs(c.rosteredHours) : CL.money(c.rosteredCost)}</div><div class="l">Rostered</div></div>
     </div>
     ${c.cycle ? `<div class="card" style="margin-bottom:12px"><div style="font-weight:800">152-hour cycle · week ${c.cycle.weekIndex} of ${c.cycle.weeks}</div>
       <div class="muted" style="font-size:13px">${CL.range(c.cycle.start, c.cycle.end)}</div>
@@ -263,10 +267,10 @@ function personSheet(c) {
       const worked = lines.length ? lines.map((l) => `${l.start}–${l.end}${l.unpaidBreakMins ? " (" + l.unpaidBreakMins + "m break)" : ""} · ${l.multiplier}×${l.loadings && l.loadings.length ? " +eve" : ""}${l.amended ? " · amended" : ""}`).join("<br>") : "";
       const meta = c.payType === "salary" ? (d.rosteredHours ? `rostered ${CL.hrs(d.rosteredHours)}` : "salary day") + (d.workedHours ? ` · clocked ${CL.hrs(d.workedHours)}` : "")
         : worked || (d.rosteredHours ? `rostered ${CL.hrs(d.rosteredHours)}` : "");
-      return `<div class="detail-day"><div class="dd">${CL.day(d.date)}<small>${CL.dayNum(d.date)}</small></div><div class="dm">${meta}</div><div class="dc">${CL.money(d.projectedCost, 2)}<small>${CL.hrs(d.projectedHours)}${d.workedHours ? "" : (d.rosteredHours ? " planned" : "")}</small></div></div>`;
+      return `<div class="detail-day"><div class="dd">${CL.day(d.date)}<small>${CL.dayNum(d.date)}</small></div><div class="dm">${meta}</div><div class="dc">${c.payHidden ? CL.hrs(d.projectedHours) : CL.money(d.projectedCost, 2)}<small>${c.payHidden ? "" : CL.hrs(d.projectedHours)}${d.workedHours ? "" : (d.rosteredHours ? " planned" : "")}</small></div></div>`;
     }).join("") : `<div class="empty">Nothing rostered or worked this week.</div>`}</div>
     ${c.flags.length ? c.flags.map((f) => `<div class="flag ${f.level}">${E(f.text)}</div>`).join("") : ""}`;
-  CL.makeSheet({ id: "person-sheet", title: "This week", body, foot: `<a class="btn" href="${CL.url("/more")}#crew">Edit pay details</a>` });
+  CL.makeSheet({ id: "person-sheet", title: "This week", body, foot: c.payHidden ? "" : `<a class="btn" href="${CL.url("/more")}#crew">Edit pay details</a>` });
   CL.sheet("person-sheet").open();
 }
 
@@ -284,7 +288,7 @@ function daySheet(d) {
       <label class="field"><span class="lbl">Revenue forecast $</span><input id="dy-f" type="number" inputmode="numeric" min="0" step="50" value="${r.forecast[d.date] ?? ""}" placeholder="${r.suggested[d.date] ?? "—"}"></label>
       <label class="field"><span class="lbl">Actual sales $</span><input id="dy-a" type="number" inputmode="numeric" min="0" step="50" value="${r.actual[d.date] ?? ""}" placeholder="${d.isPast || d.isToday ? "end of day" : "not yet"}" ${d.isPast || d.isToday ? "" : "disabled"}></label>
     </div>
-    <div class="card pad0" style="padding:4px 14px">${people.length ? people.map(({ c, dd }) => `<div class="detail-day"><div class="dd">${CL.initials(c.name)}<small>${c.department ? c.department.slice(0, 7) : ""}</small></div><div class="dm"><b style="color:var(--ink)">${E(c.name)}</b><br>${c.payType === "salary" ? "salary day" : (dd.lines && dd.lines[0] ? dd.lines.map((l) => l.start + "–" + l.end + " · " + l.multiplier + "×").join(", ") : "rostered " + CL.hrs(dd.rosteredHours))}</div><div class="dc">${CL.money(dd.projectedCost)}<small>${CL.hrs(dd.projectedHours)}</small></div></div>`).join("") : `<div class="empty">Nobody rostered or clocked in.</div>`}</div>
+    <div class="card pad0" style="padding:4px 14px">${people.length ? people.map(({ c, dd }) => `<div class="detail-day"><div class="dd">${CL.initials(c.name)}<small>${c.department ? c.department.slice(0, 7) : ""}</small></div><div class="dm"><b style="color:var(--ink)">${E(c.name)}</b><br>${c.payType === "salary" ? "salary day" : (dd.lines && dd.lines[0] ? dd.lines.map((l) => l.start + "–" + l.end + " · " + l.multiplier + "×").join(", ") : "rostered " + CL.hrs(dd.rosteredHours))}</div><div class="dc">${c.payHidden ? CL.hrs(dd.projectedHours) : CL.money(dd.projectedCost)}<small>${c.payHidden ? "pay private" : CL.hrs(dd.projectedHours)}</small></div></div>`).join("") : `<div class="empty">Nobody rostered or clocked in.</div>`}</div>
     <p class="err" id="dy-err"></p>`;
   const el = CL.makeSheet({ id: "day-sheet", title: CL.dayLong(d.date) + (d.dayType && d.dayType !== "weekday" ? ` · ${d.dayType === "public_holiday" ? "public holiday" : d.dayType}` : ""), body, foot: `<button class="btn primary" id="dy-save" type="button">Save revenue</button>` });
   const sh = CL.sheet("day-sheet"); sh.open();
@@ -406,7 +410,7 @@ $("finFile").onchange = async (e) => {
 $("settingsBtn").onclick = settingsSheet;
 CL.tabbar("pay"); CL.topbar();
 CL.requireKey(async () => {
-  CL.venueName().then((me) => { if (me && me.name) $("venueName").textContent = me.name; });
+  CL.venueName().then((me) => { if (me && me.name) $("venueName").textContent = me.name; if (me && me.isTeam) $("settingsBtn").style.display = "none"; });
   load(new URLSearchParams(location.search).get("week") || null);
 });
 </script>
