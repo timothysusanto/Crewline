@@ -94,7 +94,7 @@ async function handleIncoming(message, deps, tenantContext = null) {
       const bot = process.env.TELEGRAM_BOT_USERNAME || "CrewLine_SuperApps_bot";
       await require("./telegramClient").sendLinkButton(
         sendOpts.chatId,
-        "Crewline roster bot — see your roster and get shift updates. It does not replace Zambion.\n\n" +
+        "Crewline makes rostering easier and lets you check your shifts anytime. It does not replace Ready People.\n\n" +
           "1. Tap the button below\n2. Tap START\n3. Tap \"Share my phone number\"\n\n" +
           "(Forward this message to your staff group.)",
         "Open Crewline bot",
