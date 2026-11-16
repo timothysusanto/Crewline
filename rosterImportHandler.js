@@ -5,6 +5,11 @@
  * (Excel, CSV or PDF). The bot reads it, says what it found, and waits for
  * ADD (save as drafts) or CANCEL. Nothing reaches the crew until the roster
  * is published from the Roster page.
+ *
+ * The same door takes finance's payroll workbook: an Excel file is tried as
+ * that first (same reader as Pay → "Load finance workbook"), and loaded
+ * straight away — it only replaces that month's report figures, so there is
+ * nothing to confirm. Anything else is read as a roster.
  */
 const { sendText, fetchMediaBinary } = require("./whatsapp");
 const { importRoster, commitShifts, parseHeader, mondayOf } = require("./rosterImport");
@@ -31,14 +36,35 @@ function describe(r) {
   return lines.join("\n");
 }
 
+const money = (n) => "$" + Math.round(n || 0).toLocaleString("en-AU");
+
+/** What the bot says back after loading finance's payroll workbook. Also used by the tests. */
+function describeFinance(fin) {
+  const r = fin.report || {}, m = r.mtd || {};
+  const lines = [`✅ Payroll report loaded: ${r.rangeLabel || fin.monthLabel}${fin.venue ? " · " + fin.venue : ""}`, ""];
+  if (m.revenue) lines.push(`Revenue: ${money(m.revenue.actual)}${m.revenue.budget ? ` (budget ${money(m.revenue.budget)})` : ""}`);
+  if (m.payroll) lines.push(`${m.payroll.label}: ${money(m.payroll.actual)} = ${m.payroll.pct}% of revenue${m.payroll.budgetPct ? ` (budget ${m.payroll.budgetPct}%)` : ""}`);
+  const notes = (r.insights || []).filter((i) => i.key !== "headline").slice(0, 3);
+  if (notes.length) lines.push("", ...notes.map((i) => `• ${i.text}`));
+  lines.push("", "Open Pay in Crewline → ▶ Play the report, or PDF report.");
+  return lines.join("\n");
+}
+
 async function handleRosterFile(from, staff, doc, caption, tenantId, deps, sendOpts) {
   if (!["manager", "owner", "admin"].includes(staff.role)) {
-    await sendText(from, "Only a manager can send in a roster. If you need a shift changed, reply SWAP to your roster.", sendOpts);
+    await sendText(from, "Only a manager can send in a roster or payroll report. If you need a shift changed, reply SWAP to your roster.", sendOpts);
     return;
   }
-  await sendText(from, "📄 Got your roster — reading it…", sendOpts);
+  await sendText(from, "📄 Got your file — reading it…", sendOpts);
   const media = await fetchMediaBinary(doc.id, sendOpts);
   if (!media) { await sendText(from, "I couldn't download that file. Try sending it again.", sendOpts); return; }
+
+  // Finance's payroll workbook? Load it and reply with the headline numbers.
+  if (deps.importFinance && /\.(xlsx|xlsm)$/i.test(doc.name || "")) {
+    let fin = null;
+    try { fin = await deps.importFinance(tenantId, media.buffer, doc.name); } catch (e) { console.error("[bot] finance workbook failed:", e.message); }
+    if (fin && fin.ok) { await sendText(from, describeFinance(fin), sendOpts); return; }
+  }
 
   // A caption like "16 Nov" says which week it's for when the file only has Mon, Tue…
   let weekStart;
@@ -69,4 +95,4 @@ async function handleImportReply(from, body, tenantId, deps, sendOpts) {
   return false;
 }
 
-module.exports = { handleRosterFile, handleImportReply, describe };
+module.exports = { handleRosterFile, handleImportReply, describe, describeFinance };

@@ -915,6 +915,7 @@ app.get("/roster", (_req, res) => {
 // the 152-hour cycle for full-timers, and the Monday pay-run CSV.
 const payrollRoutes = require("./payroll-routes");
 const payRouter = payrollRoutes({ db: getFirestoreDb(), staffStore, tenantStore, shiftsStore, rosterStore });
+deps.importFinance = payRouter.importFinance; // a manager can attach finance's payroll workbook to the bot
 app.use("/api/pay", requireDashboardKey, payRouter);
 
 // One-off venue setup from the BOOTSTRAP_VENUE variable (see bootstrap.js). Runs once per config id.

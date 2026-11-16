@@ -146,7 +146,8 @@ test("routes: Excel for finance downloads, finance's file loads actual revenue, 
   await seedDemo(stores);
   const app = express();
   app.use(express.json());
-  app.use("/api/pay", (req, _res, next) => { req.tenantId = "demo-venue"; next(); }, payrollRoutes({ db: null, ...stores }));
+  const router = payrollRoutes({ db: null, ...stores });
+  app.use("/api/pay", (req, _res, next) => { req.tenantId = "demo-venue"; next(); }, router);
   const server = await new Promise((r) => { const s = app.listen(0, () => r(s)); });
   const base = `http://127.0.0.1:${server.address().port}`;
   try {
@@ -155,6 +156,14 @@ test("routes: Excel for finance downloads, finance's file loads actual revenue, 
     const wb = new ExcelJS.Workbook(); await wb.xlsx.load(Buffer.from(await x.arrayBuffer()));
     assert.ok(wb.getWorksheet("By day"));
 
+    // the same workbook attached to the bot: loaded, and summarised in the reply
+    const viaBot = await router.importFinance("demo-venue", await financeFile(), "fb.xlsx");
+    assert.equal(viaBot.ok, true); assert.equal(viaBot.month, "2026-11");
+    const said = require("../rosterImportHandler").describeFinance(viaBot);
+    assert.match(said, /^✅ Payroll report loaded: /); assert.match(said, /Revenue: \$[\d,]+/); assert.match(said, /% of revenue/);
+    assert.equal(/finance|crewline's/i.test(said.replace("Open Pay in Crewline", "")), false);
+    const notIt = new ExcelJS.Workbook(); notIt.addWorksheet("Roster").addRow(["Name", "Mon", "Tue"]);
+    assert.equal((await router.importFinance("demo-venue", Buffer.from(await notIt.xlsx.writeBuffer()), "roster.xlsx")).ok, false, "a roster file falls through to the roster reader");
     const up = await fetch(base + "/api/pay/finance/import?filename=fb.xlsx", { method: "POST", headers: { "content-type": "application/octet-stream" }, body: await financeFile() });
     const j = await up.json();
     assert.equal(up.status, 200); assert.equal(j.month, "2026-11"); assert.equal(j.days, 4); assert.equal(j.revenue, 8300);

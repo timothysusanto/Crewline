@@ -285,6 +285,22 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
     }
     return { days: (doc.days || []).length, revenueDays: Object.values(byWeek).reduce((t, w) => t + Object.keys(w).length, 0) };
   }
+  /**
+   * Load finance's payroll workbook for a venue: from the Pay page upload, or a
+   * manager attaching the file to the bot. Returns { ok:false, error } when the
+   * file isn't that workbook, else what was loaded plus the report built from it.
+   */
+  async function importFinance(tenantId, buffer, fileName) {
+    const parsed = await FR.parseFinanceWorkbook(buffer);
+    if (!parsed.ok) return { ok: false, error: parsed.error };
+    const req = { tenantId };
+    const { settings, tenant } = await loadSettings(req);
+    const doc = FR.toStored(parsed, { fileName: String(fileName || "").slice(0, 120) || null });
+    const saved = await saveFinance(tenantId, doc, settings.weekStartsOn);
+    const report = FR.buildReport({ venue: venueName(tenant, tenantId), month: doc.month, today: P.todayIn(settings.timezone),
+      collected: await collectFor(req, doc.month, settings), oncost: settings.oncost, targets: settings.targets, finance: doc, host: settings.reportHost });
+    return { ok: true, month: doc.month, monthLabel: FR.monthLabel(doc.month), through: doc.through, days: saved.days, revenue: doc.totals.revenue, kitchen: doc.totals.kitchenInc, venue: doc.venue, report };
+  }
   function monthOf(req, settings) {
     const raw = String(req.query.month || "");
     return /^\d{4}-(0[1-9]|1[0-2])$/.test(raw) ? raw : P.todayIn(settings.timezone).slice(0, 7);
@@ -316,12 +332,9 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
   router.post("/finance/import", express.raw({ type: () => true, limit: "15mb" }), async (req, res) => {
     try {
       if (!Buffer.isBuffer(req.body) || !req.body.length) return res.status(400).json({ error: "No file received." });
-      const { settings } = await loadSettings(req);
-      const parsed = await FR.parseFinanceWorkbook(req.body);
-      if (!parsed.ok) return res.status(422).json({ error: parsed.error });
-      const doc = FR.toStored(parsed, { fileName: String(req.query.filename || "").slice(0, 120) || null });
-      const saved = await saveFinance(req.tenantId, doc, settings.weekStartsOn);
-      res.json({ ok: true, month: doc.month, monthLabel: FR.monthLabel(doc.month), through: doc.through, days: saved.days, revenue: doc.totals.revenue, kitchen: doc.totals.kitchenInc, venue: doc.venue });
+      const r = await importFinance(req.tenantId, req.body, req.query.filename);
+      if (!r.ok) return res.status(422).json({ error: r.error });
+      res.json({ ok: true, month: r.month, monthLabel: r.monthLabel, through: r.through, days: r.days, revenue: r.revenue, kitchen: r.kitchen, venue: r.venue });
     } catch (e) { console.error("[pay] finance import failed:", e); res.status(500).json({ error: "Couldn't read that file." }); }
   });
 
@@ -421,6 +434,7 @@ module.exports = function payrollRoutes({ db, staffStore, tenantStore, shiftsSto
   router.readWeek = readWeek;
   router.writeWeek = writeWeek;
   router.saveFinance = saveFinance;
+  router.importFinance = importFinance;
   return router;
 };
 
