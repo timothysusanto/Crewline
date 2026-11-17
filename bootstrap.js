@@ -110,7 +110,23 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
     const workerId = idFor.get(s.name);
     if (workerId) shifts.push({ workerId, date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, published: s.published === true });
   }
-  const sh = await commitShifts({ rosterStore, tenantId, shifts, actor: "setup" });
+  // skipWeeksWithShifts: never pile a generated roster onto a week someone has already started.
+  let toCommit = shifts;
+  if (cfg.skipWeeksWithShifts && shifts.length) {
+    const busy = new Map(), keep = [];
+    for (const s of shifts) {
+      const wk = mondayOf(s.date);
+      if (!busy.has(wk)) {
+        const d = new Date(wk + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() + 6);
+        busy.set(wk, (await rosterStore.listByRange(tenantId, wk, d.toISOString().slice(0, 10))).length);
+      }
+      if (!busy.get(wk)) keep.push(s);
+    }
+    const skipped = [...busy].filter(([, n]) => n > 0).map(([wk, n]) => `${wk} (${n} shifts)`);
+    log.log(`[bootstrap] roster weeks skipped, already have shifts: ${skipped.join(", ") || "none"}`);
+    toCommit = keep;
+  }
+  const sh = await commitShifts({ rosterStore, tenantId, shifts: toCommit, actor: "setup" });
 
   // 4. Revenue forecasts, one pay week (Monday) at a time. Only empty days are filled.
   let forecastDays = 0, forecastSum = 0;

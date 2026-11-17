@@ -112,3 +112,16 @@ test("a `finance` month in the config is handed to saveFinance once", async () =
   await runBootstrap(st, "v", JSON.stringify({ id: "f2", finance: { month: "nope", days: [] } }), quiet, extras);
   assert.equal(saved.length, 1, "a malformed month is ignored");
 });
+
+test("skipWeeksWithShifts: a week that already has shifts is left alone, empty weeks are filled", async () => {
+  const st = await setup();
+  await runBootstrap(st, "v", JSON.stringify({ ...cfg, id: "first" }), quiet); // puts shifts in the week of 9 Nov
+  const more = { id: "second", crew: [{ name: "Sam S", updateOnly: true }], skipWeeksWithShifts: true, shifts: [
+    { name: "Sam S", date: "2026-11-12", start: "05:30", end: "13:30" },
+    { name: "Sam S", date: "2026-11-17", start: "05:30", end: "13:30" } ] };
+  const r = await runBootstrap(st, "v", JSON.stringify(more), quiet);
+  assert.equal(r.shifts, 1, "only the empty week (16 Nov) gets its shift");
+  const all = await st.rosterStore.listByRange("v", "2026-11-09", "2026-11-22");
+  assert.equal(all.filter((s) => s.date === "2026-11-12").length, 0);
+  assert.equal(all.filter((s) => s.date === "2026-11-17").length, 1);
+});
