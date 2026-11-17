@@ -106,7 +106,13 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
 
   // 3. Shifts (drafts, deduped).
   const shifts = [];
-  for (const s of cfg.shifts || []) {
+  // shiftsFile: a JSON file under bootstrapData/ holding {shifts:[…]} — keeps a big roster out of the env var.
+  let fileShifts = [];
+  if (cfg.shiftsFile) {
+    try { fileShifts = JSON.parse(require("fs").readFileSync(require("path").join(__dirname, "bootstrapData", require("path").basename(String(cfg.shiftsFile))), "utf8")).shifts || []; }
+    catch (e) { log.error("[bootstrap] couldn't read shiftsFile:", e.message); }
+  }
+  for (const s of [...(cfg.shifts || []), ...fileShifts]) {
     const workerId = idFor.get(s.name);
     if (workerId) shifts.push({ workerId, date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, published: s.published === true });
   }

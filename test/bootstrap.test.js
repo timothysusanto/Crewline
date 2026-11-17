@@ -125,3 +125,10 @@ test("skipWeeksWithShifts: a week that already has shifts is left alone, empty w
   assert.equal(all.filter((s) => s.date === "2026-11-12").length, 0);
   assert.equal(all.filter((s) => s.date === "2026-11-17").length, 1);
 });
+
+test("shiftsFile: shifts can come from a file under bootstrapData/", async () => {
+  const st = await setup();
+  const r = await runBootstrap(st, "v", JSON.stringify({ id: "f1", crew: [{ name: "Timoty Susanto", owner: true, updateOnly: true }], shiftsFile: "roster-dec-jan-2026.json", skipWeeksWithShifts: true }), quiet);
+  assert.equal(r.ok, true);
+  assert.ok(r.shifts > 0);
+});
