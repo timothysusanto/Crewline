@@ -104,6 +104,15 @@ async function runBootstrap({ staffStore, tenantStore, rosterStore }, tenantId, 
     log.log("[bootstrap] crew now: " + now.map((s) => `${s.name}|${s.employmentType || "-"}|${s.payType || "-"}|${s.level || "-"}|rate ${s.hourlyRate ?? "-"}|contract ${s.contractHours ?? "-"}|${s.jobTitle || "-"}`).join("; "));
   }
 
+  // logRoster: ["from","to"] — log shift counts per day (and who, for small days) so a load can be checked.
+  if (Array.isArray(cfg.logRoster)) {
+    try {
+      const all = await rosterStore.listByRange(tenantId, cfg.logRoster[0], cfg.logRoster[1]);
+      const by = {}; for (const x of all) { (by[x.date] = by[x.date] || []).push(x); }
+      log.log(`[bootstrap] roster ${cfg.logRoster.join("..")}: ${all.length} shifts, ${all.filter((x) => x.published).length} published | ` + Object.keys(by).sort().map((d) => `${d.slice(5)}:${by[d].length}`).join(" "));
+    } catch (e) { log.error("[bootstrap] couldn't read roster:", e.message); }
+  }
+
   // 3. Shifts (drafts, deduped).
   const shifts = [];
   // shiftsFile: a JSON file under bootstrapData/ holding {shifts:[…]} — keeps a big roster out of the env var.
