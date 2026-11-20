@@ -124,6 +124,13 @@ class InMemoryRosterStore extends BaseRosterStore {
     );
   }
 
+  async remove(tenantId, shiftId) {
+    const s = this._shifts.get(shiftId);
+    if (!s || s.tenantId !== tenantId) return false;
+    this._shifts.delete(shiftId);
+    return true;
+  }
+
   async update(tenantId, shiftId, patch) {
     const s = this._shifts.get(shiftId);
     if (!s || s.tenantId !== tenantId) return null;
@@ -177,6 +184,11 @@ class FirestoreRosterStore extends BaseRosterStore {
       .where("date", "<=", toDateIso)
       .get();
     return snap.docs.map((d) => normalizeShift(d.id, tenantId, d.data()));
+  }
+
+  async remove(tenantId, shiftId) {
+    await this._col(tenantId).doc(shiftId).delete();
+    return true;
   }
 
   async update(tenantId, shiftId, patch) {

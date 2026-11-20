@@ -31,8 +31,9 @@ function describe(r) {
     `${r.shifts.length} shifts · ${by.size} people · ${Math.round(total * 10) / 10} hrs`, ""];
   for (const [name, e] of [...by].sort((a, b) => a[0].localeCompare(b[0]))) lines.push(`• ${name} — ${e.n} shift${e.n === 1 ? "" : "s"}, ${Math.round(e.h * 10) / 10} h`);
   if (r.unmatched.length) lines.push("", `⚠️ Not on your crew list, skipped: ${r.unmatched.map((u) => `${u.name} (${u.count})`).join(", ")}. Add them under More → Crew, then send the file again.`);
+  if (r.assumed && r.assumed.length) lines.push("", `ℹ️ A start time on its own was read as an 8-hour day: ${[...new Set(r.assumed.map((a) => a.who))].join(", ")}.`);
   if (r.skipped.length) lines.push("", `⚠️ Couldn't read ${r.skipped.length} cell${r.skipped.length === 1 ? "" : "s"}: ${r.skipped.slice(0, 3).map((x) => `${x.who} "${x.text}"`).join(", ")}${r.skipped.length > 3 ? "…" : ""}`);
-  if (r.shifts.length) lines.push("", "30 min unpaid break is assumed on shifts over 5½ h.", "Reply ADD to save these as drafts, or CANCEL.");
+  if (r.shifts.length) lines.push("", "30 min unpaid break is assumed on shifts over 5½ h.", "Reply ADD to update the roster with these (shifts that changed are replaced), or CANCEL.");
   return lines.join("\n");
 }
 
@@ -88,8 +89,9 @@ async function handleImportReply(from, body, tenantId, deps, sendOpts) {
   if (word === "cancel" || word === "no") { pending.delete(from); await sendText(from, "Cancelled — nothing was added.", sendOpts); return true; }
   if (word === "add" || word === "add it" || word === "add roster") {
     pending.delete(from);
-    const r = await commitShifts({ rosterStore: deps.rosterStore, tenantId: p.tenantId, shifts: p.shifts, actor: from });
-    await sendText(from, `✅ Added ${r.added} shift${r.added === 1 ? "" : "s"} as drafts${r.skipped ? ` (${r.skipped} already on the roster)` : ""}.\nOpen Roster in Crewline to check it, then tap Publish to send it to the crew.`, sendOpts);
+    const r = await commitShifts({ rosterStore: deps.rosterStore, tenantId: p.tenantId, shifts: p.shifts, actor: from, replace: true });
+    const bits = [r.updated ? `${r.updated} changed` : "", r.added ? `${r.added} added` : "", r.removed ? `${r.removed} removed` : "", r.skipped ? `${r.skipped} unchanged` : ""].filter(Boolean);
+    await sendText(from, `✅ Roster updated: ${bits.join(", ") || "nothing to change"}.${r.keptPublished ? `\n⚠️ ${r.keptPublished} published shift${r.keptPublished === 1 ? "" : "s"} no longer in your file ${r.keptPublished === 1 ? "was" : "were"} left alone - remove ${r.keptPublished === 1 ? "it" : "them"} in Roster.` : ""}\nOpen Roster in Crewline to check it, then tap Publish to send it to the crew.`, sendOpts);
     return true;
   }
   return false;

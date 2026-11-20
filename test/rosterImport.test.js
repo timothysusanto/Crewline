@@ -88,9 +88,9 @@ test("Telegram: a manager sends the file, replies ADD; a crew member is refused"
     assert.match(sent.pop(), /Only a manager/);
     await handleIncoming({ from: "61400000002", ...doc }, stores, ctx);
     assert.match(sent.join("\n"), /Found a roster: Mon 9 Nov – Sun 15 Nov/);
-    assert.match(sent.join("\n"), /Reply ADD/);
+    assert.match(sent.join("\n"), /Reply ADD to update/);
     await handleIncoming({ from: "61400000002", type: "text", text: { body: "add" } }, stores, ctx);
-    assert.match(sent.pop(), /Added 19 shifts as drafts/);
+    assert.match(sent.pop(), /Roster updated: 19 added/);
     assert.equal((await stores.rosterStore.listByRange("v", "2026-11-09", "2026-11-15")).length, 19);
   } finally { tg.sendText = orig.send; tg.fetchMediaBinary = orig.fetch; }
 });
@@ -147,4 +147,28 @@ test("a lone start time such as 1100 is read as an 8-hour day (11:00-19:00) and 
   assert.deepEqual(r.shifts.map((s) => `${s.date.slice(8)} ${s.start}-${s.end}`), ["24 11:00-19:00", "25 11:00-19:00"]);
   assert.equal(r.shifts[0].unpaidBreakMins, 30);
   assert.equal(r.assumed.length, 2);
+});
+
+test("sending an adjusted roster again changes the shifts in place (no duplicates), removes days now off, keeps published", async () => {
+  const { InMemoryRosterStore } = require("../rosterStore");
+  const store = new InMemoryRosterStore();
+  const sh = (workerId, date, start, end, role) => ({ workerId, date, start, end, role: role || null, unpaidBreakMins: 30 });
+  const first = [sh("1", "2026-11-24", "15:00", "22:30"), sh("1", "2026-11-25", "15:00", "22:30"), sh("1", "2026-11-26", "15:00", "22:30"), sh("2", "2026-11-24", "07:00", "12:00")];
+  assert.equal((await R.commitShifts({ rosterStore: store, tenantId: "v", shifts: first, replace: true })).added, 4);
+  // publish worker 1's Thursday, then send an adjusted file
+  const all = await store.listByRange("v", "2026-11-23", "2026-11-29");
+  await store.update("v", all.find((s) => s.workerId === "1" && s.date === "2026-11-26").id, { published: true });
+  const second = [sh("1", "2026-11-24", "17:00", "22:30", "Fryer"), sh("1", "2026-11-25", "15:00", "22:30"), sh("2", "2026-11-24", "07:00", "12:00"), sh("3", "2026-11-25", "09:00", "15:00"), sh("2", "2026-11-27", "07:00", "12:00")];
+  const r = await R.commitShifts({ rosterStore: store, tenantId: "v", shifts: second, replace: true });
+  assert.deepEqual([r.updated, r.added, r.removed, r.skipped, r.keptPublished], [1, 2, 0, 2, 1]);
+  const now = (await store.listByRange("v", "2026-11-23", "2026-11-29")).map((s) => `${s.workerId} ${s.date.slice(8)} ${s.start}-${s.end}${s.role ? " " + s.role : ""}${s.published ? " P" : ""}`).sort();
+  assert.deepEqual(now, ["1 24 17:00-22:30 Fryer", "1 25 15:00-22:30", "1 26 15:00-22:30 P", "2 24 07:00-12:00", "2 27 07:00-12:00", "3 25 09:00-15:00"]);
+  // a draft day the new file shows as off is removed
+  const third = [sh("1", "2026-11-24", "17:00", "22:30", "Fryer"), sh("1", "2026-11-27", "10:00", "18:00")];
+  const t = await R.commitShifts({ rosterStore: store, tenantId: "v", shifts: third, replace: true });
+  assert.equal(t.removed, 1); // worker 1's Wednesday draft; Thursday is published and stays
+  assert.equal(t.keptPublished, 1);
+  // default (bootstrap/setup) mode is still add-only
+  const a = await R.commitShifts({ rosterStore: store, tenantId: "v", shifts: [sh("1", "2026-11-24", "10:00", "11:00")] });
+  assert.equal(a.added, 1);
 });

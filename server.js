@@ -895,7 +895,7 @@ app.post("/api/roster-import/commit", requireDashboardKey, async (req, res) => {
     const ok = (req.body.shifts || []).filter((s) => crew.has(String(s.workerId)) && /^\d{4}-\d{2}-\d{2}$/.test(s.date) && /^\d{2}:\d{2}$/.test(s.start) && /^\d{2}:\d{2}$/.test(s.end))
       .map((s) => ({ workerId: String(s.workerId), date: s.date, start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: Math.max(0, parseInt(s.unpaidBreakMins, 10) || 0) }));
     if (!ok.length) return res.status(400).json({ error: "No shifts to add." });
-    res.json({ ok: true, ...(await rosterImport.commitShifts({ rosterStore, tenantId: req.tenantId, shifts: ok, actor: "dashboard-import" })) });
+    res.json({ ok: true, ...(await rosterImport.commitShifts({ rosterStore, tenantId: req.tenantId, shifts: ok, actor: "dashboard-import", replace: true })) });
   } catch (e) { console.error("[roster-import]", e); res.status(500).json({ error: "Couldn't save the shifts." }); }
 });
 

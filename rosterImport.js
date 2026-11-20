@@ -357,25 +357,55 @@ async function importRoster(buffer, { filename, mime, staff, weekStart, today })
  * published). Shifts already on the roster for the same person, day and times
  * are skipped, so sending the same file twice does no harm.
  */
-async function commitShifts({ rosterStore, tenantId, shifts, actor = "import" }) {
-  if (!shifts.length) return { added: 0, skipped: 0 };
+async function commitShifts({ rosterStore, tenantId, shifts, actor = "import", replace = false }) {
+  if (!shifts.length) return { added: 0, skipped: 0, updated: 0, removed: 0, keptPublished: 0 };
   const dates = shifts.map((s) => s.date).sort();
   const existing = await rosterStore.listByRange(tenantId, dates[0], dates[dates.length - 1]);
-  const key = (s) => `${s.workerId}|${s.date}|${s.start}|${s.end}`;
-  const have = new Set(existing.map(key));
-  let added = 0, skipped = 0;
   const at = new Date().toISOString();
-  for (const s of shifts) {
-    if (have.has(key(s))) { skipped++; continue; }
-    have.add(key(s));
-    await rosterStore.addShift({
-      tenantId, workerId: s.workerId, date: s.date, start: s.start, end: s.end,
-      unpaidBreakMins: s.unpaidBreakMins || 0, role: s.role || null, published: s.published === true,
-      createdAt: at, updatedAt: at, audit: [{ at, action: "imported", by: actor, guardWarnings: [] }],
-    });
-    added++;
+  const mk = (s) => ({
+    tenantId, workerId: s.workerId, date: s.date, start: s.start, end: s.end,
+    unpaidBreakMins: s.unpaidBreakMins || 0, role: s.role || null, published: s.published === true,
+    createdAt: at, updatedAt: at, audit: [{ at, action: "imported", by: actor, guardWarnings: [] }],
+  });
+  const key = (s) => `${s.workerId}|${s.date}|${s.start}|${s.end}`;
+
+  if (!replace) {
+    const have = new Set(existing.map(key));
+    let added = 0, skipped = 0;
+    for (const s of shifts) {
+      if (have.has(key(s))) { skipped++; continue; }
+      have.add(key(s));
+      await rosterStore.addShift(mk(s));
+      added++;
+    }
+    return { added, skipped, updated: 0, removed: 0, keptPublished: 0 };
   }
-  return { added, skipped };
+
+  // Replace mode: the file is the roster for the people and days it covers. A shift that changed is
+  // changed in place (not added next to the old one); a day the file now shows off loses its draft.
+  // Published shifts are changed or added but never deleted here - take those off in the Roster page.
+  const people = new Set(shifts.map((s) => s.workerId));
+  const cell = (s) => `${s.workerId}|${s.date}`;
+  const group = (list) => list.reduce((m, s) => (m.get(cell(s)) ? m.get(cell(s)).push(s) : m.set(cell(s), [s]), m), new Map());
+  const ex = group(existing.filter((s) => people.has(s.workerId)));
+  const nw = group(shifts);
+  let added = 0, skipped = 0, updated = 0, removed = 0, keptPublished = 0;
+  for (const k of new Set([...ex.keys(), ...nw.keys()])) {
+    let old = (ex.get(k) || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+    let neu = (nw.get(k) || []).slice().sort((a, b) => a.start.localeCompare(b.start));
+    neu = neu.filter((s) => { const i = old.findIndex((o) => key(o) === key(s)); if (i >= 0) { old.splice(i, 1); skipped++; return false; } return true; });
+    while (neu.length && old.length) {
+      const s = neu.shift(), o = old.shift();
+      await rosterStore.update(tenantId, o.id, { start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, updatedAt: at });
+      updated++;
+    }
+    for (const s of neu) { await rosterStore.addShift(mk(s)); added++; }
+    for (const o of old) {
+      if (o.published) { keptPublished++; continue; }
+      if (typeof rosterStore.remove === "function") { await rosterStore.remove(tenantId, o.id); removed++; }
+    }
+  }
+  return { added, skipped, updated, removed, keptPublished };
 }
 
 module.exports = { parseTimes, parseHeader, matchStaff, parseRows, importRoster, commitShifts, fileToRows, mondayOf, nextMonday };
