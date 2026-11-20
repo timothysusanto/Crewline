@@ -86,9 +86,21 @@ async function sendChoices(to, body, rows, options = {}) {
   return wa.sendText(to, `${body}\n\nReply: ${flat.join(" · ")}`, options);
 }
 
+/**
+ * Tap buttons under a message. rows: [[{ text, data }, …], …]; `data` is the word the handlers
+ * already understand ("yes", "swap", "add"…). On WhatsApp the words are listed under the message.
+ */
+async function sendButtons(to, body, rows, options = {}) {
+  const pick = await pickChannel(to, options);
+  if (!pick) return undeliverable(to);
+  if (pick.channel === "telegram") return tg.sendButtons(pick.chatId, body, rows);
+  const words = rows.flat().map((b) => String(b.data).toUpperCase());
+  return wa.sendText(to, `${body}\n\nReply: ${words.join(" · ")}`, options);
+}
+
 /** Photo download. `options.channel` says whose file ID this is. */
 async function fetchMediaBinary(mediaId, options = {}) {
   return options.channel === "telegram" ? tg.fetchMediaBinary(mediaId) : wa.fetchMediaBinary(mediaId, options);
 }
 
-module.exports = { sendText, sendLocationRequest, sendChoices, fetchMediaBinary, setChannelResolver, pickChannel };
+module.exports = { sendText, sendButtons, sendLocationRequest, sendChoices, fetchMediaBinary, setChannelResolver, pickChannel };

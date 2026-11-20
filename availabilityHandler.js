@@ -1,6 +1,6 @@
 "use strict";
 
-const { sendText } = require("./whatsapp");
+const { sendText, sendButtons } = require("./whatsapp");
 const { mondayOf } = require("./rosterStore");
 
 /**
@@ -157,7 +157,7 @@ async function handleRosterQuery(from, staff, deps, sendOpts) {
     const site = s.siteId ? siteNames.get(s.siteId) : null;
     return `${label} — ${s.start}–${s.end}${s.role ? ` (${s.role})` : ""}${site ? ` @ ${site}` : ""}`;
   });
-  await sendText(from, `Your upcoming shifts:\n${lines.join("\n")}\n\nReply YES to confirm or SWAP if you need a change.`, sendOpts);
+  await sendButtons(from, `📋 Your upcoming shifts:\n${lines.join("\n")}`, [[{ text: "✅ Confirm", data: "yes" }, { text: "🔁 Need a change", data: "swap" }]], sendOpts);
   return true;
 }
 

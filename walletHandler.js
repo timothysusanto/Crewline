@@ -25,7 +25,7 @@
  * sends the photo again.
  */
 
-const { sendText, fetchMediaBinary } = require("./whatsapp");
+const { sendText, sendButtons, fetchMediaBinary } = require("./whatsapp");
 const { getFirestoreDb } = require("./firebase");
 const { CREDENTIAL_TYPES, resolveType } = require("./credentialTypes");
 
@@ -105,9 +105,9 @@ async function handleCredentialPhoto(from, staff, image, tenantId, deps, sendOpt
 
   if (draft.type && draft.expiryDate) {
     const label = CREDENTIAL_TYPES[draft.type].label;
-    await sendText(from,
-      `Looks like: *${label}*${draft.number ? `, no. ${draft.number}` : ""}, expiring ${fmtDate(draft.expiryDate)}.\n\n` +
-      `Reply *YES* to save, or correct me like: rsa 15/03/2027`, sendOpts);
+    await sendButtons(from,
+      `Looks like: ${label}${draft.number ? `, no. ${draft.number}` : ""}, expiring ${fmtDate(draft.expiryDate)}.\n\n` +
+      `Tap Save, or correct me like: rsa 15/03/2027`, [[{ text: "✅ Save", data: "yes" }, { text: "✖️ Cancel", data: "no" }]], sendOpts);
   } else {
     await sendText(from,
       `I couldn't read it confidently. Tell me what it is and when it expires, like:\n` +
@@ -151,8 +151,8 @@ async function handleWalletReply(from, staff, body, tenantId, deps, sendOpts) {
     return true;
   }
 
-  await sendText(from,
-    `Still filing your last photo. Reply *YES* to save, *NO* to cancel, or correct me like: rsa 15/03/2027`, sendOpts);
+  await sendButtons(from,
+    `Still filing your last photo. Tap Save or Cancel, or correct me like: rsa 15/03/2027`, [[{ text: "✅ Save", data: "yes" }, { text: "✖️ Cancel", data: "no" }]], sendOpts);
   return true;
 }
 

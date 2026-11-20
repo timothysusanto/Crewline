@@ -1,6 +1,6 @@
 "use strict";
 
-const { sendText } = require("./whatsapp");
+const { sendText, sendButtons } = require("./whatsapp");
 const { availabilityLink, isConfigured: linksConfigured } = require("./signedLinks");
 const {
   BLOCKS, BLOCK_LABEL, weekStartOf, weekDates, parseShorthand, expandPattern,
@@ -69,13 +69,13 @@ function buildPing({ staff, weekStart, previous, chase }) {
 
   if (previousDays && Object.keys(previousDays).length) {
     lines.push(`Last week you were free ${describeDays(previousDays)}.`);
-    lines.push('Reply SAME to repeat it, or NONE if you can\'t work next week.');
+    lines.push('Tap Same again to repeat it, or Can\'t work if you\'re not available.');
   } else if (standing && Object.keys(standing).length) {
     lines.push(`You normally work ${describePattern(standing)}.`);
-    lines.push('Reply SAME to confirm that, or NONE if you can\'t work next week.');
+    lines.push('Tap Same again to confirm that, or Can\'t work if you\'re not available.');
   } else {
     lines.push("Let us know which shifts you can work and you'll get offers as they come.");
-    lines.push('Reply NONE if you can\'t work next week.');
+    lines.push('Tap Can\'t work if you\'re not available next week.');
   }
 
   lines.push(linkLine(staff.tenantId, staff.phone, weekStart));
@@ -140,7 +140,9 @@ async function sendPing(staff, weekStart, deps, sendOpts, chase) {
     const previous = await availabilityStore.findPreviousSubmitted(
       staff.tenantId, staff.phone, weekStart
     );
-    await sendText(staff.phone, buildPing({ staff, weekStart, previous, chase }), sendOpts);
+    const hasPattern = (previous && isSubmitted(previous) && Object.keys(previous.days || {}).length) || (staff.standingPattern && Object.keys(staff.standingPattern).length);
+    const row = hasPattern ? [{ text: "🔁 Same again", data: "same" }, { text: "🚫 Can't work", data: "none" }] : [{ text: "🚫 Can't work", data: "none" }];
+    await sendButtons(staff.phone, buildPing({ staff, weekStart, previous, chase }), [row], sendOpts);
   } catch (err) {
     // One unreachable number must not stop the other 299 pings.
     console.error(`[availability] ping to ${staff.phone} failed:`, err.message);
@@ -210,7 +212,7 @@ async function handleNotAvailable(from, staff, deps, sendOpts = {}, now = new Da
   await sendText(
     from,
     `Noted — you're down as not available for ${describeWeek(weekStart)}. ` +
-      'Message "same" or send your shifts any time if that changes.',
+      'Tap More, then Same availability — or send your shifts — any time if that changes.',
     sendOpts
   );
   return true;

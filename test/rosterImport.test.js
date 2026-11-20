@@ -78,8 +78,10 @@ test("Telegram: a manager sends the file, replies ADD; a crew member is refused"
   // The handler goes through ./whatsapp, which routes Telegram chats to telegramClient; stub that layer.
   const stores = buildStores();
   for (const s of staff) await stores.staffStore.upsert({ ...s, tenantId: "v", role: s.name === "Maria Gomez" ? "manager" : "staff", active: true });
-  const orig = { send: tg.sendText, fetch: tg.fetchMediaBinary };
+  const orig = { send: tg.sendText, fetch: tg.fetchMediaBinary, btn: tg.sendButtons };
+  const taps = [];
   tg.sendText = async (_c, body) => { sent.push(body); return { ok: true }; };
+  tg.sendButtons = async (_c, body, rows) => { sent.push(body); taps.push(rows.flat().map((b) => b.data)); return { ok: true }; };
   tg.fetchMediaBinary = async () => ({ buffer: fx("roster.pdf"), mimeType: "application/pdf" });
   try {
     const ctx = { tenantId: "v", channel: "telegram", chatId: "1" };
@@ -88,11 +90,12 @@ test("Telegram: a manager sends the file, replies ADD; a crew member is refused"
     assert.match(sent.pop(), /Only a manager/);
     await handleIncoming({ from: "61400000002", ...doc }, stores, ctx);
     assert.match(sent.join("\n"), /Found a roster: Mon 9 Nov – Sun 15 Nov/);
-    assert.match(sent.join("\n"), /Reply ADD to update/);
+    assert.match(sent.join("\n"), /Tap Update roster/);
+    assert.deepEqual(taps.pop(), ["add", "cancel"]); // the two buttons under the summary
     await handleIncoming({ from: "61400000002", type: "text", text: { body: "add" } }, stores, ctx);
     assert.match(sent.pop(), /Roster updated: 19 added/);
     assert.equal((await stores.rosterStore.listByRange("v", "2026-11-09", "2026-11-15")).length, 19);
-  } finally { tg.sendText = orig.send; tg.fetchMediaBinary = orig.fetch; }
+  } finally { tg.sendText = orig.send; tg.fetchMediaBinary = orig.fetch; tg.sendButtons = orig.btn; }
 });
 
 test("compact 24-hour times (0530-1336, 1700-0000) and rows of RDO", async () => {

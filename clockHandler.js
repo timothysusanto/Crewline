@@ -163,12 +163,12 @@ async function clockOut(from, staff, reported, deps, sendOpts) {
 
   const openShift = await shiftsStore.findOpenShift(from);
   if (!openShift) {
-    await sendText(from, 'I don\'t see an open shift for you to clock out of. Message "in" if you haven\'t clocked in yet.', sendOpts);
+    await sendText(from, 'I don\'t see an open shift for you to clock out of. Tap Clock in if you haven\'t clocked in yet.', sendOpts);
     return;
   }
 
   if (hasActiveBreak(openShift)) {
-    await sendText(from, 'You\'re still on break — message "back" to end your break before clocking out.', sendOpts);
+    await sendText(from, 'You\'re still on break — tap Back to end your break before clocking out.', sendOpts);
     return;
   }
 
@@ -212,7 +212,7 @@ async function startBreak(from, staff, deps, sendOpts = {}) {
   const { shiftsStore } = deps;
   const openShift = await shiftsStore.findOpenShift(from);
   if (!openShift) {
-    await sendText(from, 'You\'re not clocked in right now, so there\'s no shift to take a break from. Message "in" first.', sendOpts);
+    await sendText(from, 'You\'re not clocked in right now, so there\'s no shift to take a break from. Tap Clock in first.', sendOpts);
     return;
   }
   if (hasActiveBreak(openShift)) {
@@ -221,7 +221,7 @@ async function startBreak(from, staff, deps, sendOpts = {}) {
   }
   try {
     await shiftsStore.startBreak(openShift.shiftId, new Date().toISOString());
-    await sendText(from, `Break started, ${staff.name} — message "back" when you're back on the floor.`, sendOpts);
+    await sendText(from, `Break started, ${staff.name} — tap Back when you're back on the floor.`, sendOpts);
   } catch (err) {
     console.error("[break] failed to start break:", err);
     await sendText(from, "Couldn't start your break just now — please try again in a moment.", sendOpts);
@@ -232,7 +232,7 @@ async function endBreak(from, staff, deps, sendOpts = {}) {
   const { shiftsStore } = deps;
   const openShift = await shiftsStore.findOpenShift(from);
   if (!openShift || !hasActiveBreak(openShift)) {
-    await sendText(from, 'You\'re not currently on a break. Message "break" to start one, or "out" to clock out.', sendOpts);
+    await sendText(from, 'You\'re not currently on a break. Tap Break to start one, or Clock out.', sendOpts);
     return;
   }
   try {

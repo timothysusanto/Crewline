@@ -68,13 +68,14 @@ function toRouterMessage(msg, phone) {
  *   "ignored" | "prompted_link" | "linked" | "not_registered" | "spoofed_contact" | "routed"
  */
 async function handleTelegramUpdate(update, deps) {
+  if (update && update.callback_query) return handleButtonTap(update.callback_query, deps);
   const msg = update && update.message;
   // Private chats only — the bot is for one-to-one use, never a group.
   if (!msg || !msg.chat || msg.chat.type !== "private" || !msg.from || msg.from.is_bot) return "ignored";
 
   const chatId = String(msg.chat.id);
   const { staffStore } = deps;
-  const send = (body) => tg.sendText(chatId, body);
+  const send = (body) => tg.sendText(chatId, body, { menu: false });
 
   const staff = await staffStore.findByTelegramChatId(chatId);
 
@@ -95,9 +96,8 @@ async function handleTelegramUpdate(update, deps) {
         return "not_registered";
       }
       await staffStore.linkTelegramChatId(phone, chatId);
-      await send(
-        `You're connected, ${record.name}. Type "in" to clock in, "roster" to see your shifts, ` +
-          `or "hi" for the full command list.`
+      await tg.sendText(chatId, 
+        `You're connected, ${record.name}. Use the buttons below: Clock in, Clock out, My roster — and More for everything else.`
       );
       return "linked";
     }
@@ -115,4 +115,23 @@ async function handleTelegramUpdate(update, deps) {
   return "routed";
 }
 
-module.exports = { handleTelegramUpdate, verifyTelegramSecret, normalizePhone, cleanText, toRouterMessage };
+/**
+ * A tap on a button under a message. The button's data is the word the person would have typed
+ * ("yes", "swap", "add", "train 1 en"…), so it goes to the router exactly like a text message.
+ * Data starting with "m:" is a menu item — its buttons stay so the menu can be used again.
+ */
+async function handleButtonTap(cq, deps) {
+  const msg = cq.message;
+  tg.answerCallback(cq.id).catch(() => {}); // stop the spinner straight away
+  if (!msg || !msg.chat || msg.chat.type !== "private" || !cq.data) return "ignored";
+  const chatId = String(msg.chat.id);
+  const staff = await deps.staffStore.findByTelegramChatId(chatId);
+  if (!staff) return "ignored";
+  const keep = cq.data.startsWith("m:");
+  const word = keep ? cq.data.slice(2) : cq.data;
+  if (!keep) tg.clearButtons(chatId, msg.message_id).catch(() => {});
+  await handleIncoming({ from: staff.phone, type: "text", text: { body: word } }, deps, { tenantId: staff.tenantId, channel: "telegram", chatId });
+  return "button";
+}
+
+module.exports = { handleButtonTap, handleTelegramUpdate, verifyTelegramSecret, normalizePhone, cleanText, toRouterMessage };

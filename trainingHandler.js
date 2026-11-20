@@ -17,7 +17,7 @@
  * drafts) — a redeploy mid-quiz means retaking three questions.
  */
 
-const { sendText } = require("./whatsapp");
+const { sendText, sendButtons } = require("./whatsapp");
 const { getFirestoreDb } = require("./firebase");
 const { MODULES, LANGS } = require("./trainingContent");
 
@@ -58,14 +58,15 @@ async function handleEnrolCommand(from, staff, body, tenantId, deps, sendOpts) {
   const arg = body.replace(/^enrol\s*/, "").trim();
   if (arg) {
     const c = courses.find((x) => x.id === arg || x.label.toLowerCase().includes(arg));
-    if (!c) { await sendText(from, `Couldn't find that course. Text "enrol" for the list.`, sendOpts); return; }
+    if (!c) { await sendText(from, `Couldn't find that course. Tap More, then Courses for the list.`, sendOpts); return; }
     await sendText(from,
       `🎓 *${c.label}*\n${c.url}${c.note ? "\n⚠ " + c.note : ""}\n\n` +
       `When you finish, send me a photo of the certificate and it goes straight into your wallet — your manager sees it and your roster status updates.`, sendOpts);
     return;
   }
-  const lines = courses.map((c) => `• ${c.label} — reply "enrol ${c.id}"`);
-  await sendText(from, `🎓 Accredited courses:\n${lines.join("\n")}\n\nThese are external certified courses — the certificate lands in your wallet when you photo it to me.`, sendOpts);
+  const lines = courses.map((c) => `• ${c.label}`);
+  await sendButtons(from, `🎓 Accredited courses:\n${lines.join("\n")}\n\nTap one for the link. These are external certified courses — the certificate lands in your wallet when you photo it to me.`,
+    courses.map((c) => [{ text: c.label.slice(0, 40), data: `m:enrol ${c.id}` }]), sendOpts);
 }
 
 async function handleTrainCommand(from, staff, body, tenantId, deps, sendOpts) {
@@ -74,16 +75,21 @@ async function handleTrainCommand(from, staff, body, tenantId, deps, sendOpts) {
 
   const m = body.match(/^train\s+(\d+)\s*([a-z]{2})?$/);
   if (!m) {
-    const list = Object.values(MODULES)
-      .map((mod) => `${mod.id}. ${mod.title.en} — reply "train ${mod.id} en" | "train ${mod.id} ne" (${LANGS.ne}) | "train ${mod.id} zh" (${LANGS.zh})`)
-      .join("\n");
-    await sendText(from, `🎓 Training modules:\n${list}`, sendOpts);
+    const mods = Object.values(MODULES);
+    const list = mods.map((mod) => `${mod.id}. ${mod.title.en}`).join("\n");
+    // One row per module: tap the language to start.
+    const rows = mods.map((mod) => [
+      { text: `${mod.id} · English`, data: `m:train ${mod.id} en` },
+      { text: `${mod.id} · ${LANGS.ne}`, data: `m:train ${mod.id} ne` },
+      { text: `${mod.id} · ${LANGS.zh}`, data: `m:train ${mod.id} zh` },
+    ]);
+    await sendButtons(from, `🎓 Training modules:\n${list}\n\nTap a language to start.`, rows, sendOpts);
     return;
   }
 
   const mod = MODULES[parseInt(m[1], 10)];
   const lang = m[2] && mod && mod.lessons[m[2]] ? m[2] : "en";
-  if (!mod) { await sendText(from, `No module ${m[1]} yet. Text "train" for the list.`, sendOpts); return; }
+  if (!mod) { await sendText(from, `No module ${m[1]} yet. Tap More, then Training for the list.`, sendOpts); return; }
 
   // Lessons — one message each, then question 1.
   for (const lesson of mod.lessons[lang]) await sendText(from, lesson, sendOpts);
@@ -93,8 +99,9 @@ async function handleTrainCommand(from, staff, body, tenantId, deps, sendOpts) {
 
 async function sendQuestion(from, mod, lang, qIdx, sendOpts) {
   const q = mod.quiz[lang][qIdx];
-  await sendText(from,
-    `❓ ${qIdx + 1}/${mod.quiz[lang].length}: ${q.q}\n\na) ${q.a}\nb) ${q.b}\nc) ${q.c}\n\nReply a, b or c.`, sendOpts);
+  await sendButtons(from,
+    `❓ ${qIdx + 1}/${mod.quiz[lang].length}: ${q.q}\n\na) ${q.a}\nb) ${q.b}\nc) ${q.c}`,
+    [[{ text: "A", data: "a" }, { text: "B", data: "b" }, { text: "C", data: "c" }], [{ text: "Stop", data: "stop" }]], sendOpts);
 }
 
 /** Returns true when the message belonged to an active quiz. */
@@ -105,12 +112,12 @@ async function handleTrainingReply(from, staff, body, tenantId, deps, sendOpts) 
 
   if (body === "stop" || body === "cancel") {
     quizzes.delete(from);
-    await sendText(from, `Training stopped. Text "train" any time to start again.`, sendOpts);
+    await sendText(from, `Training stopped. Tap More, then Training to start again.`, sendOpts);
     return true;
   }
   const ans = body.trim().toLowerCase().replace(/[).]/g, "");
   if (!["a", "b", "c"].includes(ans)) {
-    await sendText(from, "Reply just a, b or c (or \"stop\").", sendOpts);
+    await sendText(from, "Tap A, B or C under the question (or Stop).", sendOpts);
     return true;
   }
 

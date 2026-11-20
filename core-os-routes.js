@@ -327,21 +327,25 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
 
       let sent = 0;
       const unreachable = [];
-      for (const [workerId, shifts] of Object.entries(byWorker)) {
+      // Mark everything published first, then message people ten at a time (was one after another).
+      await Promise.all(Object.values(byWorker).flat().map((s) => T(req).collection("shifts").doc(s.id).update({ published: true, updatedAt: now(), confirmedAt: null, swapRequestedAt: null })));
+      const tell = async ([workerId, shifts]) => {
         const w = workersById[workerId];
-        await Promise.all(shifts.map((s) => T(req).collection("shifts").doc(s.id).update({ published: true, updatedAt: now(), confirmedAt: null, swapRequestedAt: null })));
         if (sendMessage && w && w.phone) {
           const lines = shifts
             .sort((a, b) => a.date.localeCompare(b.date))
             .map((s) => `• ${fmtDay(s.date)} ${s.start}–${s.end}${s.role ? " (" + s.role + ")" : ""}`);
-          const r = await sendMessage(w.phone, `📋 Your roster ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}\n\nReply YES to confirm or SWAP if you need a change.`);
+          const r = await sendMessage(w.phone, `📋 Your roster ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}`,
+            [[{ text: "✅ Confirm", data: "yes" }, { text: "🔁 Need a change", data: "swap" }]]);
           // The dispatcher returns { ok:false, reason:"no_channel" } for someone
           // who has never messaged the bot — they can't be reached yet.
           if (r && r.ok === false) unreachable.push(w.name || workerId); else sent++;
         } else if (w) {
           unreachable.push(w.name || workerId);
         }
-      }
+      };
+      const everyone = Object.entries(byWorker);
+      for (let i = 0; i < everyone.length; i += 10) await Promise.all(everyone.slice(i, i + 10).map((e) => tell(e).catch((err) => { console.error("[publish] message failed:", err.message); unreachable.push((workersById[e[0]] || {}).name || e[0]); })));
       res.json({ ok: true, workersNotified: sent, workersOnRoster: Object.keys(byWorker).length, unreachable });
     } catch (e) { err(res, e); }
   });

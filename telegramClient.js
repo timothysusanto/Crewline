@@ -49,17 +49,75 @@ function chunk(text, max = MAX_LEN) {
   return out;
 }
 
-/** Plain-text message (no parse_mode, so staff names/amounts never need escaping). */
+/**
+ * The always-there menu under the message box: the things people do every day are one tap.
+ * Tapping a key sends its label as a normal message; router.js maps the label to the command.
+ */
+const MAIN_MENU = {
+  keyboard: [
+    [{ text: "🟢 Clock in" }, { text: "🔴 Clock out" }],
+    [{ text: "☕ Break" }, { text: "▶️ Back" }],
+    [{ text: "📋 My roster" }, { text: "☰ More" }],
+  ],
+  resize_keyboard: true,
+  is_persistent: true,
+};
+
+/**
+ * Plain-text message (no parse_mode, so staff names/amounts never need escaping).
+ * Carries the main menu so it is always one tap away; pass { menu: false } for someone not linked yet.
+ */
 async function sendText(chatId, body, options = {}) {
   let last = {};
+  const markup = options.menu === false ? { remove_keyboard: true } : MAIN_MENU;
   for (const part of chunk(body)) {
-    last = await call(
-      "sendMessage",
-      { chat_id: chatId, text: part, reply_markup: { remove_keyboard: true } },
-      options
-    );
+    last = await call("sendMessage", { chat_id: chatId, text: part, reply_markup: markup }, options);
   }
   return last;
+}
+
+/**
+ * A message with tap buttons right under it. rows: [[{ text, data }, …], …] — tapping sends `data`
+ * back as a callback, which telegramWebhook.js hands to the router as if the person had typed it.
+ */
+async function sendButtons(chatId, body, rows, options = {}) {
+  const parts = chunk(body);
+  for (const part of parts.slice(0, -1)) await call("sendMessage", { chat_id: chatId, text: part }, options);
+  return call(
+    "sendMessage",
+    {
+      chat_id: chatId,
+      text: parts[parts.length - 1] || "",
+      reply_markup: {
+        inline_keyboard: rows.map((r) => (Array.isArray(r) ? r : [r]).map((b) => ({ text: b.text, callback_data: String(b.data).slice(0, 64) }))),
+      },
+    },
+    options
+  );
+}
+
+/** Stop the spinner on a tapped button (must be called for every tap). */
+function answerCallback(callbackId, text, options = {}) {
+  return call("answerCallbackQuery", text ? { callback_query_id: callbackId, text } : { callback_query_id: callbackId }, options);
+}
+
+/** Take the buttons off a message once one has been tapped, so it can't be tapped twice. */
+function clearButtons(chatId, messageId, options = {}) {
+  return call("editMessageReplyMarkup", { chat_id: chatId, message_id: messageId, reply_markup: { inline_keyboard: [] } }, options);
+}
+
+/** The "/" command list Telegram shows next to the message box. */
+function setCommands(options = {}) {
+  return call("setMyCommands", {
+    commands: [
+      { command: "in", description: "Clock in" },
+      { command: "out", description: "Clock out" },
+      { command: "break", description: "Start a break" },
+      { command: "back", description: "Back from break" },
+      { command: "roster", description: "My shifts" },
+      { command: "menu", description: "Everything else" },
+    ],
+  }, options);
 }
 
 /** One-tap "share my location" button (reply keyboard, hides after use). */
@@ -182,9 +240,9 @@ async function fetchProfilePhoto(chatId, options = {}) {
 function setWebhook(url, secret, options = {}) {
   return call(
     "setWebhook",
-    { url, secret_token: secret, allowed_updates: ["message"], drop_pending_updates: false },
+    { url, secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: false },
     options
   );
 }
 
-module.exports = { sendText, sendLinkButton, sendLocationRequest, sendChoices, sendVoice, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };
+module.exports = { sendText, sendButtons, answerCallback, clearButtons, setCommands, MAIN_MENU, sendLinkButton, sendLocationRequest, sendChoices, sendVoice, sendContactRequest, fetchMediaBinary, fetchProfilePhoto, setWebhook, chunk };

@@ -11,7 +11,7 @@
  * straight away — it only replaces that month's report figures, so there is
  * nothing to confirm. Anything else is read as a roster.
  */
-const { sendText, fetchMediaBinary } = require("./whatsapp");
+const { sendText, sendButtons, fetchMediaBinary } = require("./whatsapp");
 const { importRoster, commitShifts, parseHeader, mondayOf } = require("./rosterImport");
 
 const PENDING_TTL_MS = 15 * 60 * 1000;
@@ -33,7 +33,7 @@ function describe(r) {
   if (r.unmatched.length) lines.push("", `⚠️ Not on your crew list, skipped: ${r.unmatched.map((u) => `${u.name} (${u.count})`).join(", ")}. Add them under More → Crew, then send the file again.`);
   if (r.assumed && r.assumed.length) lines.push("", `ℹ️ A start time on its own was read as an 8-hour day: ${[...new Set(r.assumed.map((a) => a.who))].join(", ")}.`);
   if (r.skipped.length) lines.push("", `⚠️ Couldn't read ${r.skipped.length} cell${r.skipped.length === 1 ? "" : "s"}: ${r.skipped.slice(0, 3).map((x) => `${x.who} "${x.text}"`).join(", ")}${r.skipped.length > 3 ? "…" : ""}`);
-  if (r.shifts.length) lines.push("", "30 min unpaid break is assumed on shifts over 5½ h.", "Reply ADD to update the roster with these (shifts that changed are replaced), or CANCEL.");
+  if (r.shifts.length) lines.push("", "30 min unpaid break is assumed on shifts over 5½ h.", "Tap Update roster to save these — shifts that changed are replaced.");
   return lines.join("\n");
 }
 
@@ -53,7 +53,7 @@ function describeFinance(fin) {
 
 async function handleRosterFile(from, staff, doc, caption, tenantId, deps, sendOpts) {
   if (!["manager", "owner", "admin"].includes(staff.role)) {
-    await sendText(from, "Only a manager can send in a roster or payroll report. If you need a shift changed, reply SWAP to your roster.", sendOpts);
+    await sendText(from, "Only a manager can send in a roster or payroll report. If you need a shift changed, tap My roster, then Need a change.", sendOpts);
     return;
   }
   await sendText(from, "📄 Got your file — reading it…", sendOpts);
@@ -77,7 +77,8 @@ async function handleRosterFile(from, staff, doc, caption, tenantId, deps, sendO
   if (!r.ok) { await sendText(from, `😕 ${r.error}\n\nA roster with the days along the top (Mon, Tue… or dates), names down the side and times like 10:00-18:30 in the boxes works best.`, sendOpts); return; }
   if (!r.shifts.length) { await sendText(from, describe(r), sendOpts); return; }
   pending.set(from, { at: Date.now(), tenantId, shifts: r.shifts, filename: doc.name });
-  await sendText(from, describe(r) + `\n\nWrong week? Send the file again with the date as the caption, e.g. "16 Nov".`, sendOpts);
+  await sendButtons(from, describe(r) + `\n\nWrong week? Send the file again with the date as the caption, e.g. "16 Nov".`,
+    [[{ text: "✅ Update roster", data: "add" }, { text: "✖️ Cancel", data: "cancel" }]], sendOpts);
 }
 
 /** ADD / CANCEL while a roster is waiting. Returns true if it handled the message. */
@@ -87,7 +88,7 @@ async function handleImportReply(from, body, tenantId, deps, sendOpts) {
   if (Date.now() - p.at > PENDING_TTL_MS) { pending.delete(from); return false; }
   const word = body.trim().toLowerCase().replace(/[!.]+$/, "");
   if (word === "cancel" || word === "no") { pending.delete(from); await sendText(from, "Cancelled — nothing was added.", sendOpts); return true; }
-  if (word === "add" || word === "add it" || word === "add roster") {
+  if (["add", "add it", "add roster", "update", "update roster"].includes(word)) {
     pending.delete(from);
     const r = await commitShifts({ rosterStore: deps.rosterStore, tenantId: p.tenantId, shifts: p.shifts, actor: from, replace: true });
     const bits = [r.updated ? `${r.updated} changed` : "", r.added ? `${r.added} added` : "", r.removed ? `${r.removed} removed` : "", r.skipped ? `${r.skipped} unchanged` : ""].filter(Boolean);

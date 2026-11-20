@@ -393,7 +393,7 @@ test("the ping is confirm-or-amend, not a blank form", async () => {
   const withHistory = buildPing({ staff, weekStart: "2026-08-17", previous, chase: false });
   assert.match(withHistory, /Next week, 17–23 Aug/);
   assert.match(withHistory, /Last week you were free Mon AM, Wed AM\/PM/);
-  assert.match(withHistory, /Reply SAME/);
+  assert.match(withHistory, /Tap Same again/);
 
   // No history: fall back to the standing pattern, still one word to confirm.
   const patternOnly = buildPing({ staff, weekStart: "2026-08-17", previous: null, chase: false });
@@ -405,7 +405,7 @@ test("the ping is confirm-or-amend, not a blank form", async () => {
     weekStart: "2026-08-17", previous: null, chase: false,
   });
   assert.doesNotMatch(blank, /Last week|normally work/);
-  assert.match(blank, /Reply NONE/);
+  assert.match(blank, /Tap Can't work/);
 
   assert.match(buildPing({ staff, weekStart: "2026-08-17", previous, chase: true }), /reminder/i);
 });

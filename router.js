@@ -1,6 +1,6 @@
 "use strict";
 
-const { sendText } = require("./whatsapp");
+const { sendText, sendButtons } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
 const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
 const { handleRosterFile, handleImportReply } = require("./rosterImportHandler");
@@ -26,6 +26,37 @@ const {
  */
 const { handleWalletCommand, handleWalletReply, handleCredentialPhoto } = require("./walletHandler");
 const { handleTrainCommand, handleTrainingReply, handleEnrolCommand } = require("./trainingHandler");
+
+// The main-menu keys (and a few natural words) -> the command each one means.
+const LABELS = {
+  "clock in": "in", "clock out": "out", "start break": "break", "end break": "back", "back from break": "back",
+  "my roster": "roster", "shifts": "roster", "my shifts": "roster",
+  more: "menu", help: "menu", hi: "menu", hello: "menu", hey: "menu", start: "menu",
+  "fix a timesheet": "fix", "fix timesheet": "fix", "my wallet": "wallet", training: "train", courses: "enrol", "invite staff": "invite",
+};
+/** "🟢 Clock in" -> "in"; anything else comes back trimmed and lower-cased, as before. */
+function normalise(raw) {
+  const t = String(raw || "").trim().toLowerCase();
+  const bare = t.replace(/^[^a-z0-9]+/, "").trim();
+  return LABELS[bare] || (bare !== t && bare ? bare : t);
+}
+
+/** "More": everything that isn't on the main keys, as tap buttons. */
+async function sendMenu(from, staff, lead, sendOpts) {
+  const boss = staff.role === "owner" || staff.role === "manager" || staff.role === "admin";
+  const rows = [
+    [{ text: "🔁 Same availability", data: "m:same" }, { text: "🚫 Can't work next week", data: "m:none" }],
+    [{ text: "🪪 My wallet", data: "m:wallet" }, { text: "🎓 Training", data: "m:train" }],
+    [{ text: "📝 Fix a timesheet", data: "m:fix" }, { text: "📚 Courses", data: "m:enrol" }],
+  ];
+  if (boss && sendOpts.channel === "telegram") rows.push([{ text: "📨 Invite staff", data: "m:invite" }]);
+  const tips = [
+    "📷 Send a photo of a certificate to file it in your wallet.",
+    "🎤 Forgot to clock in or out? Hold the mic and tell me.",
+  ];
+  if (boss) tips.push("📄 Managers: send me the roster file (PDF, Excel or CSV) and I'll update the roster.");
+  await sendButtons(from, `${lead}\n\n${tips.join("\n")}`, rows, sendOpts);
+}
 
 async function handleIncoming(message, deps, tenantContext = null) {
   const { staffStore, pendingActions } = deps;
@@ -58,7 +89,12 @@ async function handleIncoming(message, deps, tenantContext = null) {
   }
 
   if (type === "text") {
-    const body = (message.text?.body || "").trim().toLowerCase();
+    const body = normalise(message.text?.body);
+
+    if (body === "menu") {
+      await sendMenu(from, staff, `Hi ${staff.name} 👋 The buttons below clock you in and out and show your roster. Here's the rest:`, sendOpts);
+      return;
+    }
 
     if (body === "in") {
       await requestClockAction(from, "clock_in", deps, sendOpts);
@@ -139,22 +175,14 @@ async function handleIncoming(message, deps, tenantContext = null) {
     // blocks rather than guessing.
     if (await handleShorthand(from, staff, body, deps, sendOpts)) return;
 
-    await sendText(
-      from,
-      `Hi ${staff.name} — commands: "in"/"out" to clock in/out, "break"/"back" for breaks, ` +
-        `"yes" to confirm your roster or "swap" to ask for a change, "same" to repeat last week's availability, ` +
-        `"mon am pm, fri all" to set your week, ` +
-        `"roster" to see your shifts, "wallet" to see your credentials (or send a photo of one to file it), ` +
-        `"train" for training modules, "fix" if you forgot to clock in or out (or send a voice note).`,
-      sendOpts
-    );
+    await sendMenu(from, staff, `Sorry ${staff.name}, I didn't catch that. Tap a button:`, sendOpts);
     return;
   }
 
   if (type === "location") {
     const pending = pendingActions.get(from);
     if (!pending) {
-      await sendText(from, "Thanks for the location — but I wasn't expecting one right now. Message \"in\" or \"out\" first.", sendOpts);
+      await sendText(from, "Thanks for the location — but I wasn't expecting one right now. Tap Clock in or Clock out first.", sendOpts);
       return;
     }
     await handleLocationForClockAction(from, staff, message.location, pending, deps, sendOpts);
@@ -181,4 +209,4 @@ async function handleIncoming(message, deps, tenantContext = null) {
   await sendText(from, `Received a ${type} message — this type isn't handled yet.`, sendOpts);
 }
 
-module.exports = { handleIncoming };
+module.exports = { handleIncoming, normalise };

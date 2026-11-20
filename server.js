@@ -11,7 +11,7 @@ const express = require("express");
 const crypto = require("crypto");
 const path = require("path");
 const { verifyMetaSignature } = require("./verifySignature");
-const { sendText, setChannelResolver } = require("./whatsapp");
+const { sendText, sendButtons, setChannelResolver } = require("./whatsapp");
 const { handleTelegramUpdate, verifyTelegramSecret } = require("./telegramWebhook");
 const telegramClient = require("./telegramClient");
 const { handleIncoming } = require("./router");
@@ -905,7 +905,7 @@ app.use("/api/core", requireDashboardKey, coreOSRoutes({
   db: getFirestoreDb(),
   staffStore,
   tenantStore,
-  sendMessage: (phone, text) => sendText(phone, text),
+  sendMessage: (phone, text, buttons) => (buttons ? sendButtons(phone, text, buttons) : sendText(phone, text)),
 }));
 app.get("/roster", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "roster.html"));
@@ -1003,6 +1003,7 @@ app.listen(PORT, () => {
     telegramClient
       .setWebhook(url, process.env.TELEGRAM_WEBHOOK_SECRET)
       .then((r) => console.log(`[startup] Telegram webhook ${r && r.ok ? "registered" : "registration FAILED"}: ${url}`))
+      .then(() => telegramClient.setCommands())
       .catch((err) => console.error("[startup] Telegram webhook registration error:", err.message));
   } else if (!telegramMissing.length) {
     console.warn("[startup] Set PUBLIC_BASE_URL (or deploy on Railway with a public domain) to auto-register the Telegram webhook.");

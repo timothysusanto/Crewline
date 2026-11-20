@@ -158,3 +158,53 @@ test("a linked chat's 'in' reaches the clock handler and asks for location via T
     assert.equal(ask.body.chat_id, "555");
     assert.equal(ask.body.reply_markup.keyboard[0][0].request_location, true);
   }));
+
+test("buttons: every reply carries the main menu, and its keys mean the commands", () =>
+  withTelegramStub(async (calls) => {
+    const { normalise } = require("../router");
+    const { MAIN_MENU } = require("../telegramClient");
+    const keys = MAIN_MENU.keyboard.flat().map((k) => normalise(k.text));
+    assert.deepEqual(keys, ["in", "out", "break", "back", "roster", "menu"]);
+    assert.equal(normalise("mon am pm, fri all"), "mon am pm, fri all"); // free text is untouched
+
+    const deps = buildDeps();
+    await deps.staffStore.linkTelegramChatId("61412345678", "555");
+    // "☰ More" opens the menu: tap buttons under the message, not words to type.
+    assert.equal(await handleTelegramUpdate(dm({ text: "☰ More" }), deps), "routed");
+    const menu = calls.find((c) => c.body && c.body.reply_markup && c.body.reply_markup.inline_keyboard);
+    assert.ok(menu, "expected inline buttons");
+    const data = menu.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
+    assert.ok(data.includes("m:wallet") && data.includes("m:fix") && data.includes("m:same"));
+    assert.ok(!data.includes("m:invite"), "crew don't get the manager's invite button");
+
+    // A plain reply (nothing on the roster yet) carries the main menu so it never disappears.
+    calls.length = 0;
+    await handleTelegramUpdate(dm({ text: "📋 My roster" }), deps);
+    const plain = calls.find((c) => c.method === "sendMessage");
+    assert.equal(plain.body.reply_markup.is_persistent, true);
+  }));
+
+test("buttons: a tap is routed like the typed word, the spinner is stopped and the buttons are removed", () =>
+  withTelegramStub(async (calls) => {
+    const deps = buildDeps();
+    await deps.staffStore.linkTelegramChatId("61412345678", "555");
+    await deps.rosterStore.addShift({ tenantId: "demo-venue", workerId: "61412345678", date: new Date(Date.now() + 2 * 864e5).toISOString().slice(0, 10), start: "15:00", end: "22:30", published: true });
+    const tap = (data) => ({ callback_query: { id: "cb1", data, from: { id: 9, is_bot: false }, message: { message_id: 77, chat: { id: 555, type: "private" } } } });
+    assert.equal(await handleTelegramUpdate(tap("yes"), deps), "button");
+    assert.ok(calls.some((c) => c.method === "answerCallbackQuery" && c.body.callback_query_id === "cb1"));
+    assert.ok(calls.some((c) => c.method === "editMessageReplyMarkup" && c.body.message_id === 77));
+    assert.ok(calls.some((c) => c.method === "sendMessage" && /Confirmed — 1 shift/.test(c.body.text)));
+    const [shift] = await deps.rosterStore.listByRange("demo-venue", "2000-01-01", "2999-01-01");
+    assert.ok(shift.confirmedAt, "the tap confirmed the shift");
+
+    // Menu items ("m:…") keep their buttons so the menu can be used again.
+    calls.length = 0;
+    await handleTelegramUpdate(tap("m:roster"), deps);
+    assert.ok(!calls.some((c) => c.method === "editMessageReplyMarkup"));
+    const roster = calls.find((c) => c.method === "sendMessage");
+    assert.deepEqual(roster.body.reply_markup.inline_keyboard[0].map((b) => b.callback_data), ["yes", "swap"]);
+
+    // A tap from a chat that isn't linked does nothing.
+    const stranger = tap("yes"); stranger.callback_query.message.chat.id = 999;
+    assert.equal(await handleTelegramUpdate(stranger, deps), "ignored");
+  }));
