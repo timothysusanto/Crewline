@@ -209,8 +209,14 @@ function gridToShifts(rows, staff, { ref, weekStart }) {
       cells.set(key, e);
     }
   }
+  const assumed = [];
   for (const { who, col, text } of cells.values()) {
-    const { ranges, rest } = parseTimes(text);
+    let { ranges, rest } = parseTimes(text);
+    // A lone start time on its own ("1100" - the Exec Chef's usual mark) is a standard 8-hour day: 11:00-19:00.
+    if (!ranges.length && col && /^\d{3,4}$/.test(text.trim())) {
+      const t = hm(text.trim());
+      if (t && t[0] < 24) { const st = t[0] * 60 + t[1]; ranges = [{ start: hhmm(st), end: hhmm(st + 8 * 60) }]; rest = ""; if (who.staff) assumed.push({ who: who.label, date: col.date, start: hhmm(st), end: hhmm(st + 8 * 60) }); }
+    }
     if (!ranges.length) {
       const t = text.trim();
       if (t && !NOT_WORKING.test(t) && /\d/.test(t)) skipped.push({ who: who.label, text: t });
@@ -227,7 +233,7 @@ function gridToShifts(rows, staff, { ref, weekStart }) {
       });
     }
   }
-  return { shifts, unmatched: [...unmatchedMap].map(([name, count]) => ({ name, count })), skipped };
+  return { shifts, assumed, unmatched: [...unmatchedMap].map(([name, count]) => ({ name, count })), skipped };
 }
 
 function transpose(rows) {

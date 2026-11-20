@@ -138,3 +138,13 @@ test("a task word starting with p/a is not read as pm/am (\"1500-2100 Prep\")", 
   assert.deepEqual(R.parseTimes("1500-2230 Larder").ranges, [{ start: "15:00", end: "22:30" }]);
   assert.deepEqual(R.parseTimes("9-5pm").ranges, [{ start: "09:00", end: "17:00" }]);
 });
+
+test("a lone start time such as 1100 is read as an 8-hour day (11:00-19:00) and reported as assumed", () => {
+  const c = (text, x) => ({ text, c: x });
+  const row = (y, ...cells) => Object.assign(cells, { y });
+  const rows = [row(700, c("Name", 40), c("Mon", 150), c("Tue", 250), c("Wed", 350)), row(600, c("Tim Susanto", 40), c("RDO", 150), c("1100", 250), c("1100", 350))];
+  const r = R.parseRows(rows, [{ name: "Tim Susanto", phone: "3" }], { today: "2026-11-20", weekStart: "2026-11-23" });
+  assert.deepEqual(r.shifts.map((s) => `${s.date.slice(8)} ${s.start}-${s.end}`), ["24 11:00-19:00", "25 11:00-19:00"]);
+  assert.equal(r.shifts[0].unpaidBreakMins, 30);
+  assert.equal(r.assumed.length, 2);
+});
