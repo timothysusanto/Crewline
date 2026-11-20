@@ -33,7 +33,7 @@ function nextMonday(fromIso) { const off = (8 - dow(fromIso)) % 7; return addDay
 
 // One end of a range: "10", "10:30", "10.30", "10h30", or compact 24-hour "0530" / "1336" / "200".
 const T = String.raw`(\d{1,2}[:.h]\d{2}|\d{3,4}|\d{1,2})`;
-const RANGE_RE = new RegExp(String.raw`(?<![\d:.])${T}\s*(am|pm|a|p)?\s*(?:-|–|—|to|until|till)\s*${T}\s*(am|pm|a|p)?(?![\d:.])`, "gi");
+const RANGE_RE = new RegExp(String.raw`(?<![\d:.])${T}(?:\s*(am|pm|a|p)(?![a-z]))?\s*(?:-|–|—|to|until|till)\s*${T}(?:\s*(am|pm|a|p)(?![a-z]))?(?![\d:.])`, "gi");
 
 /** "0530" → [5,30]; "10:30" → [10,30]; "9" → [9,0]; null if it isn't a clock time. */
 function hm(tok) {
@@ -160,40 +160,71 @@ function gridToShifts(rows, staff, { ref, weekStart }) {
   };
 
   // 3. Each row below: a name on the left, times in the day columns.
+  //    A cell can wrap over several lines ("1100-2000 Miss Mi" / "Lunch"), and a tall cell's first
+  //    line sits ABOVE the name line. So every line is given to the nearest name row (by height) and
+  //    the lines of one cell are joined back together before the times are read.
   const shifts = [], unmatchedMap = new Map(), skipped = [];
+  const isLabel = (c) => /[a-z]/i.test(c.text);
+  const anchors = []; // rows that carry a name: { i, y, who }
+  const owner = new Array(rows.length).fill(undefined);
   let current = null; // { label, staff }
   for (let i = hi + 1; i < rows.length; i++) {
     const left = rows[i].filter((c) => c.c < firstC - spacing * 0.5).sort((a, b) => a.c - b.c);
     const body = rows[i].filter((c) => c.c >= firstC - spacing * 0.5);
     const cellsWithTimes = body.filter((c) => parseTimes(c.text).ranges.length);
     if (left.length) {
-      const labelCells = left.filter((c) => /[a-z]/i.test(c.text));
+      const labelCells = left.filter(isLabel);
       const hit = labelCells.map((c) => ({ c, s: matchStaff(c.text, staff) })).find((x) => x.s);
       if (hit) current = { label: hit.c.text.trim(), staff: hit.s };
-      else if (labelCells.length && cellsWithTimes.length) current = { label: labelCells[0].text.trim(), staff: null };
+      else if (labelCells.length && (cellsWithTimes.length || body.some((c) => NOT_WORKING.test(c.text.trim())))) current = { label: labelCells[0].text.trim(), staff: null };
       else if (labelCells.length) current = null; // a heading row ("KITCHEN") — nothing to read
-    } else if (!cellsWithTimes.length) continue;
-    // (no left cell + times = a wrapped continuation of the row above, keep `current`)
-    if (!current) continue;
+      if (current && labelCells.length && body.length && rows[i].y != null) anchors.push({ i, y: rows[i].y, who: current });
+    } else if (!cellsWithTimes.length && !body.some((c) => /\d/.test(c.text))) continue;
+    // (no left cell = a wrapped continuation line of a nearby name row)
+    owner[i] = left.length ? current : (current === null ? null : undefined);
+  }
+  // Continuation lines (no name on them) belong to the nearest name row; without positions, to the row above.
+  const gapsY = anchors.slice(1).map((a, k) => Math.abs(anchors[k].y - a.y)).filter((g) => g > 1).sort((a, b) => a - b);
+  const reach = gapsY.length ? gapsY[Math.floor(gapsY.length / 2)] * 0.75 : Infinity; // a wrapped line sits within about one row of its name
+  let prev = null;
+  for (let i = hi + 1; i < rows.length; i++) {
+    if (owner[i] !== undefined && rows[i].some((c) => c.c < firstC - spacing * 0.5)) { prev = owner[i]; continue; }
+    if (rows[i].y != null && anchors.length) {
+      let best = null, d = Infinity;
+      for (const a of anchors) { const dd = Math.abs(a.y - rows[i].y); if (dd < d) { d = dd; best = a; } }
+      owner[i] = best && d <= reach ? best.who : null;
+    } else owner[i] = prev;
+  }
 
-    for (const cell of body) {
-      const { ranges, rest } = parseTimes(cell.text);
-      if (!ranges.length) {
-        const t = cell.text.trim();
-        if (t && !NOT_WORKING.test(t) && /\d/.test(t)) skipped.push({ who: current.label, text: t });
-        continue;
-      }
+  // Gather the lines of each (person, day) cell, top to bottom, then read them as one piece of text.
+  const cells = new Map();
+  for (let i = hi + 1; i < rows.length; i++) {
+    const who = owner[i];
+    if (!who) continue;
+    for (const cell of rows[i].filter((c) => c.c >= firstC - spacing * 0.5)) {
       const col = colFor(cell);
-      if (!col) { skipped.push({ who: current.label, text: cell.text.trim() }); continue; }
-      const role = rest && !NOT_WORKING.test(rest) && /^[a-z][a-z .&'-]{1,24}$/i.test(rest) ? rest : null;
-      for (const r of ranges) {
-        if (!current.staff) { unmatchedMap.set(current.label, (unmatchedMap.get(current.label) || 0) + 1); continue; }
-        const mins = (+r.end.slice(0, 2) * 60 + +r.end.slice(3) + (r.end < r.start ? 1440 : 0)) - (+r.start.slice(0, 2) * 60 + +r.start.slice(3));
-        shifts.push({
-          workerId: String(current.staff.phone), name: current.staff.name, date: col.date,
-          start: r.start, end: r.end, role, unpaidBreakMins: mins > 330 ? 30 : 0,
-        });
-      }
+      const key = (who.label + "|" + (col ? col.date : "?" + Math.round(cell.c)));
+      const e = cells.get(key) || { who, col, text: "" };
+      e.text += (e.text ? " " : "") + cell.text;
+      cells.set(key, e);
+    }
+  }
+  for (const { who, col, text } of cells.values()) {
+    const { ranges, rest } = parseTimes(text);
+    if (!ranges.length) {
+      const t = text.trim();
+      if (t && !NOT_WORKING.test(t) && /\d/.test(t)) skipped.push({ who: who.label, text: t });
+      continue;
+    }
+    if (!col) { skipped.push({ who: who.label, text: text.trim() }); continue; }
+    const role = rest && !NOT_WORKING.test(rest) && /^(?=.*[a-z])[a-z0-9 .&'+\/-]{1,40}$/i.test(rest) ? rest : null;
+    for (const r of ranges) {
+      if (!who.staff) { unmatchedMap.set(who.label, (unmatchedMap.get(who.label) || 0) + 1); continue; }
+      const mins = (+r.end.slice(0, 2) * 60 + +r.end.slice(3) + (r.end < r.start ? 1440 : 0)) - (+r.start.slice(0, 2) * 60 + +r.start.slice(3));
+      shifts.push({
+        workerId: String(who.staff.phone), name: who.staff.name, date: col.date,
+        start: r.start, end: r.end, role, unpaidBreakMins: mins > 330 ? 30 : 0,
+      });
     }
   }
   return { shifts, unmatched: [...unmatchedMap].map(([name, count]) => ({ name, count })), skipped };
@@ -285,7 +316,9 @@ async function pdfToRows(buffer) {
         if (last && it.x - last.x1 <= Math.max(3, it.h * 0.45)) { last.text += (it.x - last.x1 > 0.8 ? " " : "") + it.t; last.x1 = it.x + it.w; }
         else cells.push({ text: it.t, x0: it.x, x1: it.x + it.w });
       }
-      rows.push(cells.map((c) => ({ ...c, text: c.text.trim(), c: (c.x0 + c.x1) / 2 })));
+      const row = cells.map((c) => ({ ...c, text: c.text.trim(), c: (c.x0 + c.x1) / 2 }));
+      row.y = line.y - p * 100000; // top-to-bottom position across pages
+      rows.push(row);
     }
   }
   return rows.sort(() => 0); // order is already top-to-bottom per page

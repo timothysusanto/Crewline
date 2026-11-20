@@ -107,3 +107,34 @@ test("compact 24-hour times (0530-1336, 1700-0000) and rows of RDO", async () =>
   assert.deepEqual(r.shifts.map((s) => `${s.date} ${s.start}-${s.end}`), ["2026-11-10 05:30-13:36", "2026-11-11 15:00-22:30"]);
   assert.deepEqual(r.unmatched, []);
 });
+
+test("wrapped task notes: a cell that runs over several lines stays with its own person", () => {
+  // Mia's Tue cell wraps over 2 lines with the first line ABOVE her name; Ben's cells wrap too.
+  const c = (text, x) => ({ text, c: x });
+  const row = (y, ...cells) => Object.assign(cells, { y });
+  const rows = [
+    row(700, c("Name", 40), c("Mon", 150), c("Tue", 250), c("Wed", 350)),
+    row(600, c("1100-2000 Miss Mi", 250)),
+    row(590, c("Mia Gomez", 40), c("RDO", 150), c("Lunch", 250), c("1500-2230 Fryer", 350)),
+    row(560, c("0900-1500 Prep", 150)),
+    row(550, c("Ben Kim", 40), c("Function + Sandwich", 150), c("RDO", 250), c("1330-1500 Bar &1800-", 350)),
+    row(540, c("000 Bar+KS", 350)),
+  ];
+  const people = [{ name: "Mia Gomez", phone: "1" }, { name: "Ben Kim", phone: "2" }];
+  const r = R.parseRows(rows, people, { today: "2026-11-20", weekStart: "2026-11-23" });
+  const got = r.shifts.map((s) => `${s.name} ${s.date.slice(8)} ${s.start}-${s.end} [${s.role}]`).sort();
+  assert.deepEqual(got, [
+    "Ben Kim 23 09:00-15:00 [Prep Function + Sandwich]",
+    "Ben Kim 25 13:30-15:00 [Bar & Bar+KS]",
+    "Ben Kim 25 18:00-00:00 [Bar & Bar+KS]",
+    "Mia Gomez 24 11:00-20:00 [Miss Mi Lunch]",
+    "Mia Gomez 25 15:00-22:30 [Fryer]",
+  ]);
+});
+
+test("a task word starting with p/a is not read as pm/am (\"1500-2100 Prep\")", () => {
+  assert.deepEqual(R.parseTimes("0900-1500 Prep").ranges, [{ start: "09:00", end: "15:00" }]);
+  assert.equal(R.parseTimes("0900-1500 Prep").rest, "Prep");
+  assert.deepEqual(R.parseTimes("1500-2230 Larder").ranges, [{ start: "15:00", end: "22:30" }]);
+  assert.deepEqual(R.parseTimes("9-5pm").ranges, [{ start: "09:00", end: "17:00" }]);
+});
