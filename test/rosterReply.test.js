@@ -62,7 +62,7 @@ test("YES with nothing published still answers", () =>
     assert.match(calls[0].body.text, /Nothing to confirm yet/);
   }));
 
-test("SWAP flags the shifts and tells reachable managers only", () =>
+test("Need a change: one shift is flagged, and reachable managers are told", () =>
   withTelegramStub(async (calls) => {
     const d = deps();
     await d.rosterStore.addShift({ tenantId: "cafe", workerId: sam.phone, date: addDays(today, 1), start: "09:00", end: "17:00", published: true });
@@ -72,9 +72,32 @@ test("SWAP flags the shifts and tells reachable managers only", () =>
     assert.equal(mine[0].swapNote, "can't do it");
     const toManager = calls.find((c) => c.body.chat_id === "200");
     assert.ok(toManager, "manager with a linked chat is told");
-    assert.match(toManager.body.text, /Sam wants to swap/);
-    assert.match(calls.at(-1).body.text, /your manager has been told/);
+    assert.match(toManager.body.text, /Sam needs a change/);
+    assert.match(calls.at(-1).body.text, /sent to your manager/);
     assert.equal(calls.at(-1).body.chat_id, "100");
+  }));
+
+test("Need a change with several shifts: asks which one, then flags only that shift", () =>
+  withTelegramStub(async (calls) => {
+    const d = deps();
+    await d.rosterStore.addShift({ tenantId: "cafe", workerId: sam.phone, date: addDays(today, 1), start: "09:00", end: "17:00", published: true });
+    await d.rosterStore.addShift({ tenantId: "cafe", workerId: sam.phone, date: addDays(today, 2), start: "15:00", end: "23:00", published: true });
+    await handleRosterReply(sam.phone, sam, "swap", d, tg);
+    const ask = calls.at(-1).body;
+    assert.match(ask.text, /Which shift/);
+    const taps = ask.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
+    assert.equal(taps.length, 3); // two shifts + Never mind
+    let mine = await d.rosterStore.listByWorker("cafe", sam.phone, today, addDays(today, 10));
+    assert.ok(mine.every((s) => !s.swapRequestedAt), "nothing is flagged until a shift is picked");
+    await handleRosterReply(sam.phone, sam, taps[1], d, tg);
+    mine = (await d.rosterStore.listByWorker("cafe", sam.phone, today, addDays(today, 10))).sort((a, b) => a.date.localeCompare(b.date));
+    assert.deepEqual(mine.map((s) => Boolean(s.swapRequestedAt)), [false, true]);
+    // "yes" twice: the second time there is nothing left to confirm.
+    await handleRosterReply(sam.phone, sam, "yes", d, tg);
+    await handleRosterReply(sam.phone, sam, "yes", d, tg);
+    assert.match(calls.at(-1).body.text, /1 shift is with your manager/); // the flagged shift is not silently confirmed
+    await handleRosterReply(sam.phone, sam, "swap none", d, tg);
+    assert.match(calls.at(-1).body.text, /nothing changed/);
   }));
 
 test("rosterStore: findAssignment picks the earliest published shift; shiftWindow handles overnight", async () => {

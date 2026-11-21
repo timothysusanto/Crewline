@@ -74,7 +74,7 @@ function buildPing({ staff, weekStart, previous, chase }) {
     lines.push(`You normally work ${describePattern(standing)}.`);
     lines.push('Tap Same again to confirm that, or Can\'t work if you\'re not available.');
   } else {
-    lines.push("Let us know which shifts you can work and you'll get offers as they come.");
+    lines.push("Tell us which shifts you can work so your manager can roster you.");
     lines.push('Tap Can\'t work if you\'re not available next week.');
   }
 
@@ -103,7 +103,9 @@ async function sweepWeeklyPings(tenantId, deps, sendOpts = {}, now = new Date())
   const isChaseDay = day === CHASE_DAY;
   if ((!isAskDay && !isChaseDay) || now.getHours() < PING_HOUR) return result;
 
-  const pool = await staffStore.listByTenant(tenantId);
+  // Casuals only. Permanent staff are rostered on their contract and managers build the roster —
+  // asking them every Wednesday what they can work is noise.
+  const pool = (await staffStore.listByTenant(tenantId)).filter(wantsAvailabilityPing);
 
   for (const staff of pool) {
     const doc = await availabilityStore.find(tenantId, staff.phone, weekStart);
@@ -147,6 +149,32 @@ async function sendPing(staff, weekStart, deps, sendOpts, chase) {
     // One unreachable number must not stop the other 299 pings.
     console.error(`[availability] ping to ${staff.phone} failed:`, err.message);
   }
+}
+
+/** Who the weekly "what can you work?" goes to: active casual crew, never managers or permanent staff. */
+function wantsAvailabilityPing(staff) {
+  if (!staff || staff.active === false) return false;
+  if (["owner", "manager", "admin"].includes(staff.role)) return false;
+  return !["fulltime", "parttime"].includes(staff.employmentType);
+}
+
+/**
+ * "Next week's availability" from the More menu: what they've said so far, and the ways to change it.
+ * Nothing is saved by opening it — the two buttons do that.
+ */
+async function handleAvailabilityMenu(from, staff, deps, sendOpts = {}, now = new Date()) {
+  const { availabilityStore } = deps;
+  const weekStart = nextWeekStart(now);
+  const doc = availabilityStore ? await availabilityStore.find(staff.tenantId, from, weekStart) : null;
+  const said = !isSubmitted(doc) ? "You haven't answered yet."
+    : Object.keys(doc.days || {}).length ? `You said: ${describeDays(doc.days)}.` : "You said you can't work that week.";
+  await sendButtons(
+    from,
+    `🗓 Next week, ${describeWeek(weekStart)}.\n${said}\n${linkLine(staff.tenantId, from, weekStart)}`,
+    [[{ text: "🔁 Same as last time", data: "same" }, { text: "🚫 Can't work that week", data: "none" }]],
+    sendOpts
+  );
+  return true;
 }
 
 /* ------------------------------------------------------- the staff-side words */
@@ -194,7 +222,7 @@ async function handleSameAgain(from, staff, deps, sendOpts = {}, now = new Date(
   await availabilityStore.submit(staff.tenantId, from, weekStart, days, source);
   await sendText(
     from,
-    `Locked in for ${describeWeek(weekStart)}: ${describeDays(days)}.\nYou'll get offers as they come.`,
+    `Saved for ${describeWeek(weekStart)}: ${describeDays(days)}.\nYour manager sees this when building the roster.`,
     sendOpts
   );
   return true;
@@ -212,7 +240,7 @@ async function handleNotAvailable(from, staff, deps, sendOpts = {}, now = new Da
   await sendText(
     from,
     `Noted — you're down as not available for ${describeWeek(weekStart)}. ` +
-      'Tap More, then Same availability — or send your shifts — any time if that changes.',
+      'Tap More, then Next week\'s availability, any time if that changes.',
     sendOpts
   );
   return true;
@@ -230,15 +258,14 @@ async function handleNotAvailable(from, staff, deps, sendOpts = {}, now = new Da
 async function handleShorthand(from, staff, body, deps, sendOpts = {}, now = new Date()) {
   const { availabilityStore } = deps;
   const { pattern, unknown } = parseShorthand(body);
-  if (!Object.keys(pattern).length) return false;
+  // Only when the WHOLE message is days and shifts. "see you friday" is a chat message, not availability.
+  if (!Object.keys(pattern).length || unknown.length) return false;
 
   const weekStart = nextWeekStart(now);
   const days = expandPattern(pattern, weekStart);
   await availabilityStore.submit(staff.tenantId, from, weekStart, days, "shorthand");
 
-  let reply = `Got it for ${describeWeek(weekStart)}: ${describeDays(days)}.`;
-  if (unknown.length) reply += `\n(Didn't understand: ${unknown.join(", ")})`;
-  await sendText(from, reply, sendOpts);
+  await sendText(from, `Saved for ${describeWeek(weekStart)}: ${describeDays(days)}.`, sendOpts);
   return true;
 }
 
@@ -268,6 +295,8 @@ module.exports = {
   handleSameAgain,
   handleNotAvailable,
   handleShorthand,
+  handleAvailabilityMenu,
+  wantsAvailabilityPing,
   gridModel,
   SAME_RE,
   NONE_RE,

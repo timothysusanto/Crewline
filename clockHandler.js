@@ -8,6 +8,9 @@ const { shiftWindow } = require("./rosterStore");
 /** Grace before a clock-in counts as late against the rostered start. */
 const LATE_AFTER_MS = 5 * 60 * 1000;
 
+/** An open shift older than this was forgotten, not still being worked. */
+const FORGOTTEN_AFTER_MS = 16 * 60 * 60 * 1000;
+
 /**
  * Handles the clock in/out flow, plus mid-shift breaks. Clock in/out is
  * two-step by necessity: WhatsApp can only get a location when the user
@@ -54,6 +57,19 @@ async function handleLocationForClockAction(from, staff, location, action, deps,
 async function clockIn(from, staff, reported, deps, sendOpts) {
   const { shiftsStore } = deps;
 
+  // Already on the clock? A second tap must not open a second shift.
+  //  - a normal open shift from today: say so and stop;
+  //  - an out-of-range attempt from a few minutes ago: let them try again from closer;
+  //  - an open shift from long ago: they forgot to clock out — don't block today's shift.
+  const open = await shiftsStore.findOpenShift(from);
+  const hhmm = (iso) => new Date(iso).toLocaleTimeString("en-AU", { hour: "2-digit", minute: "2-digit", hour12: false });
+  const stale = Boolean(open) && Date.now() - new Date(open.clockIn.time).getTime() > FORGOTTEN_AFTER_MS;
+  const retry = Boolean(open) && !stale && Boolean(open.clockIn.flaggedForReview);
+  if (open && !stale && !retry) {
+    await sendText(from, `You're already clocked in since ${hhmm(open.clockIn.time)}. Tap Clock out when you finish.`, sendOpts);
+    return;
+  }
+
   const resolution = await resolveSiteForClockIn({ staff: { ...staff, phone: from }, deps });
   if (!resolution.geofence) {
     console.error(
@@ -72,6 +88,10 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
   );
 
   if (!result.withinRadius) {
+    if (retry) {
+      await sendText(from, `Still about ${result.distanceMeters}m from ${siteLabel}. Your ${hhmm(open.clockIn.time)} clock-in is with your manager to check — or tap Clock in again once you're inside.`, sendOpts);
+      return;
+    }
     await recordFlaggedAttempt(shiftsStore, staff, from, reported, result, resolution);
     await sendText(
       from,
@@ -82,10 +102,17 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
     return;
   }
 
+  // In range now, after an out-of-range attempt a few minutes ago: that attempt becomes the clock-in.
+  if (retry && shiftsStore.reviewFlaggedShift) {
+    await shiftsStore.reviewFlaggedShift(open.shiftId, true);
+    await sendText(from, `Clocked in at ${siteLabel}, ${staff.name} — counted from ${hhmm(open.clockIn.time)}. Have a good shift!`, sendOpts);
+    return;
+  }
+
   // Stamp the role and pay rate now, so payroll never reprices a shift later.
   const pricing = await priceShift(from, staff, deps);
 
-  const { shiftId } = await shiftsStore.openShift({
+  await shiftsStore.openShift({
     tenantId: staff.tenantId,
     staffPhone: from,
     department: staff.department || null,
@@ -105,7 +132,8 @@ async function clockIn(from, staff, reported, deps, sendOpts) {
   const lateNote = await lateBy(from, staff, deps);
   await sendText(
     from,
-    `Clocked in at ${siteLabel}, ${staff.name} — have a good shift!${lateNote} (${shiftId})`,
+    `Clocked in at ${siteLabel}, ${staff.name} — have a good shift!${lateNote}` +
+      (stale ? `\n\n⚠️ Your last shift was never clocked out. Tap More, then Fix a timesheet, so those hours are right.` : ""),
     sendOpts
   );
 }
@@ -167,9 +195,11 @@ async function clockOut(from, staff, reported, deps, sendOpts) {
     return;
   }
 
-  if (hasActiveBreak(openShift)) {
-    await sendText(from, 'You\'re still on break — tap Back to end your break before clocking out.', sendOpts);
-    return;
+  // Still on a break: finishing the shift ends the break too, rather than making them tap twice.
+  let shift = openShift;
+  const endedBreak = hasActiveBreak(openShift);
+  if (endedBreak) {
+    shift = (await shiftsStore.endBreak(openShift.shiftId, new Date().toISOString())) || openShift;
   }
 
   // Measured against the site stamped on this shift at clock-in, so both ends
@@ -203,9 +233,9 @@ async function clockOut(from, staff, reported, deps, sendOpts) {
 
   await shiftsStore.closeShift(openShift.shiftId, clockOutRecord);
 
-  const workedMs = shiftDurationMinusBreaks(openShift, Date.now());
+  const workedMs = shiftDurationMinusBreaks(shift, Date.now());
   const hours = (workedMs / 1000 / 60 / 60).toFixed(1);
-  await sendText(from, `Clocked out, ${staff.name} — that was a ${hours}hr shift. See you next time!`, sendOpts);
+  await sendText(from, `Clocked out, ${staff.name} — that was a ${hours}hr shift${endedBreak ? " (your break was ended too)" : ""}. See you next time!`, sendOpts);
 }
 
 async function startBreak(from, staff, deps, sendOpts = {}) {
@@ -216,7 +246,7 @@ async function startBreak(from, staff, deps, sendOpts = {}) {
     return;
   }
   if (hasActiveBreak(openShift)) {
-    await sendText(from, "You're already on break — message \"back\" when you're ready to resume.", sendOpts);
+    await sendText(from, "You're already on break — tap Back when you're ready to resume.", sendOpts);
     return;
   }
   try {

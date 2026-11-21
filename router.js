@@ -2,13 +2,13 @@
 
 const { sendText, sendButtons } = require("./whatsapp");
 const { requestClockAction, handleLocationForClockAction, startBreak, endBreak } = require("./clockHandler");
-const { handleAvailCommand, handleDateException, handleRosterQuery } = require("./availabilityHandler");
+const { handleRosterQuery } = require("./availabilityHandler");
 const { handleRosterFile, handleImportReply } = require("./rosterImportHandler");
 const { handleFixMessage, handleFixVoice } = require("./timesheetRequests");
 const { handleRosterReply, looksLikeRosterReply } = require("./rosterReplyHandler");
 const {
   looksLikeAvailabilityReply, handleSameAgain, handleNotAvailable,
-  handleShorthand, SAME_RE, NONE_RE,
+  handleShorthand, handleAvailabilityMenu, SAME_RE, NONE_RE,
 } = require("./availabilityCapture");
 
 /**
@@ -33,6 +33,7 @@ const LABELS = {
   "my roster": "roster", "shifts": "roster", "my shifts": "roster",
   more: "menu", help: "menu", hi: "menu", hello: "menu", hey: "menu", start: "menu",
   "fix a timesheet": "fix", "fix timesheet": "fix", "my wallet": "wallet", training: "train", courses: "enrol", "invite staff": "invite",
+  "my availability": "availability", avail: "availability",
 };
 /** "🟢 Clock in" -> "in"; anything else comes back trimmed and lower-cased, as before. */
 function normalise(raw) {
@@ -45,10 +46,11 @@ function normalise(raw) {
 async function sendMenu(from, staff, lead, sendOpts) {
   const boss = staff.role === "owner" || staff.role === "manager" || staff.role === "admin";
   const rows = [
-    [{ text: "🔁 Same availability", data: "m:same" }, { text: "🚫 Can't work next week", data: "m:none" }],
-    [{ text: "🪪 My wallet", data: "m:wallet" }, { text: "🎓 Training", data: "m:train" }],
-    [{ text: "📝 Fix a timesheet", data: "m:fix" }, { text: "📚 Courses", data: "m:enrol" }],
+    [{ text: "📝 Fix a timesheet", data: "m:fix" }, { text: "🪪 My wallet", data: "m:wallet" }],
+    [{ text: "🎓 Training", data: "m:train" }, { text: "📚 Courses", data: "m:enrol" }],
   ];
+  // Availability is for casuals — permanent staff are rostered on their contract.
+  if (!["fulltime", "parttime"].includes(staff.employmentType)) rows.push([{ text: "🗓 Next week's availability", data: "m:availability" }]);
   if (boss && sendOpts.channel === "telegram") rows.push([{ text: "📨 Invite staff", data: "m:invite" }]);
   const tips = [
     "📷 Send a photo of a certificate to file it in your wallet.",
@@ -112,12 +114,8 @@ async function handleIncoming(message, deps, tenantContext = null) {
       await endBreak(from, staff, deps, sendOpts);
       return;
     }
-    if (body === "avail" || body.startsWith("avail ")) {
-      await handleAvailCommand(from, staff, body, deps, sendOpts);
-      return;
-    }
-    if (body.startsWith("off ") || body.startsWith("on ")) {
-      await handleDateException(from, staff, body, deps, sendOpts);
+    if (body === "availability") {
+      await handleAvailabilityMenu(from, staff, deps, sendOpts);
       return;
     }
     if (body === "roster") {

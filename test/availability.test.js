@@ -244,7 +244,7 @@ test("\"same\" repeats last week in one word", async () => {
     assert.equal(doc.source, "same-again");
     // Same days of the week, shifted onto the new week's dates.
     assert.deepEqual(patternFromDays(doc.days), { mon: ["AM"], wed: ["AM", "PM"], fri: ["AM"] });
-    assert.match(msg.lastTo(staff.phone).body, /Locked in/);
+    assert.match(msg.lastTo(staff.phone).body, /Saved for/);
   } finally {
     msg.restore();
   }

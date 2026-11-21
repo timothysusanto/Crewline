@@ -25,6 +25,8 @@
   .dot.expiring { background: var(--amber); } .dot.expired { background: var(--red); }
   table.roster td.cell { min-width: 108px; width: 108px; padding: 4px; cursor: pointer; }
   table.roster td.cell:active { background: var(--docket-2); }
+  table.roster td.cell .free { display: block; text-align: center; font-size: 10px; color: var(--green); font-family: var(--font-docket); margin-bottom: -10px; }
+  table.roster td.cell .free.no { color: var(--ink-3); }
   table.roster td.cell .add { display: block; text-align: center; color: var(--ink-3); font-size: 18px; line-height: 40px; }
   .shift { background: var(--paper); border: 1px solid var(--line); border-left: 3px solid var(--steel); border-radius: 8px; padding: 5px 6px 4px; font-size: 12px; position: relative; margin-bottom: 4px; }
   .shift.pub { border-left-color: var(--green); }
@@ -113,7 +115,7 @@ const E = CL.esc;
 const API = "/api/core";
 let DEMO = false;
 let weekStart = CL.mondayOf(CL.today());
-let workers = [], shifts = [], costing = null, payWeek = null;
+let workers = [], shifts = [], costing = null, payWeek = null, avail = {};
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /* ---------- demo fallback (no Firestore) ---------- */
@@ -150,8 +152,9 @@ function demoRosterCost() {
 /* ---------- data ---------- */
 async function load() {
   try {
-    const [r, w, a] = await Promise.all([CL.api(`${API}/roster?weekStart=${weekStart}`), CL.api(`${API}/workers`), CL.api(`${API}/wallet-alerts`).catch(() => ({ alerts: [] }))]);
+    const [r, w, a, av] = await Promise.all([CL.api(`${API}/roster?weekStart=${weekStart}`), CL.api(`${API}/workers`), CL.api(`${API}/wallet-alerts`).catch(() => ({ alerts: [] })), CL.api(`/api/availability?week=${weekStart}`).catch(() => null)]);
     workers = w.workers; shifts = r.shifts; costing = r.costing; DEMO = false; $("demoTag").style.display = "none";
+    avail = (av && av.people) || {}; // what casuals said they can work this week
     renderAlerts(a.alerts || []);
   } catch (e) {
     if (e.status === 401) return;
@@ -167,6 +170,14 @@ async function loadPay() {
 }
 
 /* ---------- render ---------- */
+// What a casual told the bot they can work: a small green note in their empty cells.
+function freeHint(workerId, date) {
+  const days = avail[workerId];
+  if (!days) return "";
+  const blocks = days[date] || [];
+  if (!Object.keys(days).length) return '<span class="free no" title="Said they can\'t work this week">can\'t</span>';
+  return blocks.length ? `<span class="free" title="Said they can work">free ${blocks.length >= 3 ? "all day" : blocks.join(" ")}</span>` : "";
+}
 function render() {
   const today = CL.today();
   $("title").textContent = today >= weekStart && today <= CL.addDays(weekStart, 6) ? "This week" : weekStart > today ? "Next week" : "Past week";
@@ -188,7 +199,7 @@ function render() {
         return `<div class="shift ${cls} ${w.department === "kitchen" ? "k" : ""}" data-edit="${E(s.id)}">
           <div class="t">${s.confirmedAt ? '<span class="st" title="Confirmed">✓</span>' : s.swapRequestedAt ? '<span class="st" title="Swap requested">⇄</span>' : ""}${s.start}–${s.end}</div>${s.role ? `<div class="r ellipsis">${E(s.role)}</div>` : ""}
           <div class="c">${c ? (c.salary || salaried(w) ? "salary" : "$" + Math.round(c.totalCost)) : ""}</div></div>`;
-      }).join("") + `<span class="add">+</span></td>`;
+      }).join("") + (cell.length ? "" : freeHint(w.id, d)) + `<span class="add">+</span></td>`;
     }
     return `<tr>${row}</tr>`;
   }).join("") || `<tr><td class="who" colspan="8"><div class="empty">No crew yet — tap + Crew.</div></td></tr>`;

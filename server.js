@@ -68,9 +68,15 @@ if (process.env.AVAILABILITY_PINGS_DISABLED === "1") {
   const pingTick = async () => {
     try {
       for (const t of await tenantStore.listAll()) {
-        await sweepWeeklyPings(t.tenantId, deps, {}).catch((err) => console.error(`[pings] sweep failed for ${t.tenantId}:`, err.message));
+        if (!pingTick.logged) console.log(`[startup] venue ${t.tenantId}: timezone ${(t.payroll && t.payroll.timezone) || "not set (defaults to Australia/Sydney)"}`);
+        // "Wednesday 9am" means the venue's Wednesday, not the server's.
+        const zone = (t.payroll && t.payroll.timezone) || process.env.TZ || undefined;
+        let venueNow = new Date();
+        try { if (zone) venueNow = new Date(new Date().toLocaleString("en-US", { timeZone: zone })); } catch { /* unknown zone: server time */ }
+        await sweepWeeklyPings(t.tenantId, deps, {}, venueNow).catch((err) => console.error(`[pings] sweep failed for ${t.tenantId}:`, err.message));
       }
     } catch (err) { console.error("[pings] couldn't list venues:", err.message); }
+    pingTick.logged = true;
   };
   setTimeout(pingTick, 60 * 1000);
   setInterval(pingTick, 60 * 60 * 1000).unref();
@@ -310,6 +316,8 @@ app.get("/api/availability", requireDashboardKey, async (req, res) => {
       answered: answered.length,
       unavailable: unavailable.length,
       unknown: silent.map((s) => ({ phone: s.phone, name: s.name })),
+      // Per person, for the roster grid: which blocks they said they can work each day ({} = can't work that week).
+      people: Object.fromEntries(answered.map((s) => [s.phone, byPhone.get(s.phone).days || {}])),
       freeTodayNow: (await freeTodayStore.listLive(req.tenantId)).length,
     });
   } catch (err) {
@@ -973,6 +981,7 @@ if (!process.env.MANAGER_DASHBOARD_PASSWORD) {
 app.listen(PORT, () => {
   console.log(`Crewline listening on :${PORT}`);
   console.log(`Webhook URL paths: /webhook/telegram (primary), /webhook/whatsapp (optional)`);
+  console.log(`[startup] server timezone: ${Intl.DateTimeFormat().resolvedOptions().timeZone} (local time now ${new Date().toTimeString().slice(0, 5)})`);
 
   // Create any missing Firestore composite indexes (firestore.indexes.json).
   // Without them the dashboard reads the whole attendance collection per load.

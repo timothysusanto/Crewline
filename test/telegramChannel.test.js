@@ -174,7 +174,7 @@ test("buttons: every reply carries the main menu, and its keys mean the commands
     const menu = calls.find((c) => c.body && c.body.reply_markup && c.body.reply_markup.inline_keyboard);
     assert.ok(menu, "expected inline buttons");
     const data = menu.body.reply_markup.inline_keyboard.flat().map((b) => b.callback_data);
-    assert.ok(data.includes("m:wallet") && data.includes("m:fix") && data.includes("m:same"));
+    assert.ok(data.includes("m:wallet") && data.includes("m:fix") && data.includes("m:availability"));
     assert.ok(!data.includes("m:invite"), "crew don't get the manager's invite button");
 
     // A plain reply (nothing on the roster yet) carries the main menu so it never disappears.
@@ -202,9 +202,42 @@ test("buttons: a tap is routed like the typed word, the spinner is stopped and t
     await handleTelegramUpdate(tap("m:roster"), deps);
     assert.ok(!calls.some((c) => c.method === "editMessageReplyMarkup"));
     const roster = calls.find((c) => c.method === "sendMessage");
-    assert.deepEqual(roster.body.reply_markup.inline_keyboard[0].map((b) => b.callback_data), ["yes", "swap"]);
+    assert.deepEqual(roster.body.reply_markup.inline_keyboard[0].map((b) => b.callback_data), ["swap"]); // already confirmed: no Confirm button
+    assert.match(roster.body.text, /✓ /);
 
     // A tap from a chat that isn't linked does nothing.
     const stranger = tap("yes"); stranger.callback_query.message.chat.id = 999;
     assert.equal(await handleTelegramUpdate(stranger, deps), "ignored");
+  }));
+
+test("clock in: a second tap doesn't open a second shift; clocking out on a break ends the break; chat isn't read as availability", () =>
+  withTelegramStub(async (calls) => {
+    const { InMemoryAvailabilityStore } = require("../availabilityStore");
+    const deps = buildDeps();
+    deps.pendingActions = new InMemoryPendingActions();
+    deps.availabilityStore = new InMemoryAvailabilityStore();
+    await deps.staffStore.linkTelegramChatId("61412345678", "555");
+    const said = () => calls.filter((c) => c.method === "sendMessage").at(-1).body.text;
+    // Someone is on shift since an hour ago.
+    await deps.shiftsStore.openShift({ tenantId: "demo-venue", staffPhone: "61412345678", clockIn: { time: new Date(Date.now() - 3600e3).toISOString(), withinRadius: true } });
+    await handleTelegramUpdate(dm({ text: "🟢 Clock in" }), deps);
+    await handleTelegramUpdate(dm({ location: { latitude: -31.95, longitude: 115.86 } }), deps);
+    assert.match(said(), /already clocked in since/);
+    assert.equal((await deps.shiftsStore.listByTenant("demo-venue")).length, 1);
+
+    await handleTelegramUpdate(dm({ text: "☕ Break" }), deps);
+    await handleTelegramUpdate(dm({ text: "🔴 Clock out" }), deps);
+    await handleTelegramUpdate(dm({ location: { latitude: -31.95, longitude: 115.86 } }), deps);
+    assert.match(said(), /Clocked out.*break was ended too/);
+    const [shift] = await deps.shiftsStore.listByTenant("demo-venue");
+    assert.ok(shift.clockOut && shift.breaks[0].end);
+
+    // Ordinary chat that happens to name a day is not saved as availability.
+    await handleTelegramUpdate(dm({ text: "see you friday" }), deps);
+    assert.match(said(), /didn't catch that/);
+    await handleTelegramUpdate(dm({ text: "on my way" }), deps);
+    assert.match(said(), /didn't catch that/);
+    // ...but a message that is only days and shifts still is.
+    await handleTelegramUpdate(dm({ text: "mon am pm, fri all" }), deps);
+    assert.match(said(), /Saved for/);
   }));
