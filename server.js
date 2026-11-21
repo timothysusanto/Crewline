@@ -318,7 +318,6 @@ app.get("/api/availability", requireDashboardKey, async (req, res) => {
       unknown: silent.map((s) => ({ phone: s.phone, name: s.name })),
       // Per person, for the roster grid: which blocks they said they can work each day ({} = can't work that week).
       people: Object.fromEntries(answered.map((s) => [s.phone, byPhone.get(s.phone).days || {}])),
-      freeTodayNow: (await freeTodayStore.listLive(req.tenantId)).length,
     });
   } catch (err) {
     console.error("[availability] failed to load week:", err);

@@ -105,7 +105,7 @@ function renderCrew() {
   const q = $("crewSearch").value.trim().toLowerCase();
   const list = workers.filter((w) => !q || (w.name || "").toLowerCase().includes(q) || String(w.phone).includes(q)).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   const linked = (phone) => { const s = dash && dash.staff.find((x) => x.phone === phone); return s && s.telegramChatId; };
-  $("crewCap").textContent = me && me.staffLimit ? `${workers.filter((w) => w.role !== "owner").length} of ${me.staffLimit}` : `${workers.length}`;
+  $("crewCap").textContent = me && me.staffLimit ? `${workers.filter((w) => w.role !== "owner").length} of ${me.staffLimit} crew on your plan` : `${workers.length}`;
   $("crewList").innerHTML = list.length ? list.map((w, i) => {
     const kind = w.employmentType === "fulltime" && w.payType === "salary" ? "Salaried" : ({ casual: "Casual", parttime: "Part-time", fulltime: "Full-time" }[w.employmentType] || "no pay details");
     const rate = w.payHidden ? "pay private" : w.payType === "salary" ? (w.annualSalary ? "$" + Number(w.annualSalary).toLocaleString("en-AU") + "/yr" : "no salary") : (w.hourlyRate || w.wageRate ? "$" + Number(w.hourlyRate || w.wageRate).toFixed(2) + "/h" : (w.level ? "award " + w.level : ""));

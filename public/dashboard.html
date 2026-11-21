@@ -142,7 +142,7 @@ function render() {
       <div class="name ellipsis">${E(nameOf(s.staffPhone))}</div>
       <div class="meta">📍 ${E(s.clockIn.distanceMeters)}m from ${E(s.siteName || "the venue")}</div>
       <div class="since" style="margin-top:8px">tried at ${CL.clock(s.clockIn.time)}</div>
-      <div class="btn-row" style="margin-top:10px"><button class="btn sm ok" data-ok="${E(s.shiftId)}" type="button">Approve</button><button class="btn sm danger" data-cut="${E(s.shiftId)}" type="button">Cut</button></div>
+      <div class="btn-row" style="margin-top:10px"><button class="btn sm ok" data-ok="${E(s.shiftId)}" type="button">Approve</button><button class="btn sm danger" data-cut="${E(s.shiftId)}" type="button">Reject</button></div>
     </div>`).join("")}</div>`;
   $("review").querySelectorAll("[data-ok]").forEach((b) => (b.onclick = () => review(b.dataset.ok, true, b)));
   $("review").querySelectorAll("[data-cut]").forEach((b) => (b.onclick = () => review(b.dataset.cut, false, b)));
@@ -261,7 +261,7 @@ async function forceClose(id, btn) {
 }
 async function review(id, approve, btn) {
   btn.closest(".ticket").querySelectorAll("button").forEach((b) => (b.disabled = true));
-  try { await CL.api(`/api/shifts/${encodeURIComponent(id)}/review`, { method: "POST", body: { approve } }); CL.toast(approve ? "Approved — they're on the board" : "Cut"); load(); }
+  try { await CL.api(`/api/shifts/${encodeURIComponent(id)}/review`, { method: "POST", body: { approve } }); CL.toast(approve ? "Approved — they're clocked in" : "Rejected — not counted as a clock-in"); load(); }
   catch (e) { btn.closest(".ticket").querySelectorAll("button").forEach((b) => (b.disabled = false)); CL.toast("That didn't save — try again."); }
 }
 
