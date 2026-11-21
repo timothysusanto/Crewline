@@ -396,7 +396,7 @@ async function commitShifts({ rosterStore, tenantId, shifts, actor = "import", r
     neu = neu.filter((s) => { const i = old.findIndex((o) => key(o) === key(s)); if (i >= 0) { old.splice(i, 1); skipped++; return false; } return true; });
     while (neu.length && old.length) {
       const s = neu.shift(), o = old.shift();
-      await rosterStore.update(tenantId, o.id, { start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, updatedAt: at });
+      await rosterStore.update(tenantId, o.id, { start: s.start, end: s.end, role: s.role || null, unpaidBreakMins: s.unpaidBreakMins || 0, updatedAt: at, published: false, confirmedAt: null }); // changed = a draft again until published
       updated++;
     }
     for (const s of neu) { await rosterStore.addShift(mk(s)); added++; }

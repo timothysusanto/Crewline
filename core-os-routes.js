@@ -25,6 +25,8 @@ const { costShift, costRoster, getAward, listUnverifiedRates, listAwards } = req
 const { CREDENTIAL_TYPES } = require("./credentialTypes");
 const PP = require("./payPrivacy");
 
+const { planPublish } = require("./rosterPublish");
+
 module.exports = function coreOS({ db, sendMessage, tenantStore }) {
   const router = express.Router();
 
@@ -325,28 +327,43 @@ module.exports = function coreOS({ db, sendMessage, tenantStore }) {
         (byWorker[s.workerId] = byWorker[s.workerId] || []).push({ id: d.id, ...s });
       });
 
+      // Only the people whose roster changed since they were last told get a message (and lose
+      // their "confirmed" tick). Everyone else is left alone. See rosterPublish.js.
+      const noticeCol = T(req).collection("rosterNotices");
+      const noticeSnap = await noticeCol.where("weekStart", "==", weekStart).get();
+      const notices = {};
+      noticeSnap.docs.forEach((d) => (notices[d.data().workerId] = d.data()));
+      const plan = planPublish(byWorker, notices);
+      const saveNotice = (workerId, sig) => noticeCol.doc(`${weekStart}_${workerId}`).set({ weekStart, workerId, sig, sentAt: now() });
+
       let sent = 0;
       const unreachable = [];
-      // Mark everything published first, then message people ten at a time (was one after another).
-      await Promise.all(Object.values(byWorker).flat().map((s) => T(req).collection("shifts").doc(s.id).update({ published: true, updatedAt: now(), confirmedAt: null, swapRequestedAt: null })));
-      const tell = async ([workerId, shifts]) => {
+      const buttons = [[{ text: "✅ Confirm", data: "yes" }, { text: "🔁 Need a change", data: "swap" }]];
+      const tell = async (workerId) => {
         const w = workersById[workerId];
+        const shifts = byWorker[workerId] || [];
+        await Promise.all(shifts.map((s) => T(req).collection("shifts").doc(s.id).update({ published: true, updatedAt: now(), confirmedAt: null, swapRequestedAt: null })));
         if (sendMessage && w && w.phone) {
           const lines = shifts
             .sort((a, b) => a.date.localeCompare(b.date))
             .map((s) => `• ${fmtDay(s.date)} ${s.start}–${s.end}${s.role ? " (" + s.role + ")" : ""}`);
-          const r = await sendMessage(w.phone, `📋 Your roster ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}`,
-            [[{ text: "✅ Confirm", data: "yes" }, { text: "🔁 Need a change", data: "swap" }]]);
+          const again = notices[workerId] ? "Updated roster" : "Your roster";
+          const r = shifts.length
+            ? await sendMessage(w.phone, `📋 ${again} ${fmtDay(weekStart)}–${fmtDay(weekEnd)}:\n${lines.join("\n")}`, buttons)
+            : await sendMessage(w.phone, `📋 Roster change: you now have no shifts ${fmtDay(weekStart)}–${fmtDay(weekEnd)}.`);
           // The dispatcher returns { ok:false, reason:"no_channel" } for someone
-          // who has never messaged the bot — they can't be reached yet.
-          if (r && r.ok === false) unreachable.push(w.name || workerId); else sent++;
+          // who has never messaged the bot — they can't be reached yet (tried again next publish).
+          if (r && r.ok === false) unreachable.push(w.name || workerId);
+          else { sent++; await saveNotice(workerId, plan.sigs[workerId] || ""); }
         } else if (w) {
           unreachable.push(w.name || workerId);
         }
       };
-      const everyone = Object.entries(byWorker);
-      for (let i = 0; i < everyone.length; i += 10) await Promise.all(everyone.slice(i, i + 10).map((e) => tell(e).catch((err) => { console.error("[publish] message failed:", err.message); unreachable.push((workersById[e[0]] || {}).name || e[0]); })));
-      res.json({ ok: true, workersNotified: sent, workersOnRoster: Object.keys(byWorker).length, unreachable });
+      // A week published before this tracking existed: remember what the unchanged people already have.
+      await Promise.all(plan.unchanged.filter((id) => !notices[id]).map((id) => saveNotice(id, plan.sigs[id])));
+      const todo = [...plan.changed, ...plan.cleared];
+      for (let i = 0; i < todo.length; i += 10) await Promise.all(todo.slice(i, i + 10).map((id) => tell(id).catch((err) => { console.error("[publish] message failed:", err.message); unreachable.push((workersById[id] || {}).name || id); })));
+      res.json({ ok: true, workersNotified: sent, workersChanged: todo.length, workersUnchanged: plan.unchanged.length, workersOnRoster: Object.keys(byWorker).length, unreachable });
     } catch (e) { err(res, e); }
   });
 

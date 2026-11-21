@@ -310,7 +310,8 @@ $("publishBtn").onclick = async () => {
   try {
     const j = await CL.api(`${API}/roster/publish`, { method: "POST", body: { weekStart } });
     await load();
-    CL.toast(`Published — ${j.workersNotified}/${j.workersOnRoster} sent on Telegram${j.unreachable && j.unreachable.length ? `. Not yet reachable: ${j.unreachable.join(", ")}` : ""}`, 6000);
+    const quiet = j.workersUnchanged ? `, ${j.workersUnchanged} unchanged (not messaged again)` : "";
+    CL.toast(j.workersChanged === 0 ? "Nothing changed since the last publish — nobody was messaged." : `Published — ${j.workersNotified} sent on Telegram${quiet}${j.unreachable && j.unreachable.length ? `. Not yet reachable: ${j.unreachable.join(", ")}` : ""}`, 6000);
   } catch (e) { CL.toast("Publish failed: " + e.message); }
   $("publishBtn").disabled = false;
 };
